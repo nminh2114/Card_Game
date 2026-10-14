@@ -1,0 +1,25 @@
+services:
+  postgres-db:
+    image: postgres:15-alpine
+    container_name: game_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: game_admin
+      POSTGRES_PASSWORD: SecretPassword123!
+      POSTGRES_DB: card_game_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  redis-cache:
+    image: redis:7-alpine
+    container_name: game_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass RedisSecret123!
+
+volumes:
+  pgdata:

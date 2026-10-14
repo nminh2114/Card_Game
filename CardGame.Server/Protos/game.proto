@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package game;
+option csharp_namespace = "CardGame.Server.Protos";
+
+// State Machine of Table:
+// 1. Waiting: Waiting for players to join.
+// 2. Dealing: Dealing cards to players.
+// 3. TurnLoop: Loop through each player's turn.
+// 4. Settlement: Calculate results and distribute chips.
+// Server should hide other players' cards in RoomStateSnapshot.
+
+message JoinRoomRequest {
+  string room_code = 1;
+}
+
+message PlayCardRequest {
+  repeated int32 card_values = 1; // Card encoded as 1 byte
+}
+
+message RoomStateSnapshot {
+  string room_id = 1;
+  string state = 2; // Waiting, Dealing, TurnLoop, Settlement
+  repeated PlayerSnapshot players = 3;
+  int32 current_turn_player_index = 4;
+  int32 pot_amount = 5;
+}
+
+message PlayerSnapshot {
+  string player_id = 1;
+  string username = 2;
+  int32 chip_balance = 3;
+  repeated int32 cards = 4; // Only populated for the requested user, empty/hidden for others
+  int32 card_count = 5;     // Number of cards the player holds
+}
+
+message TurnChangedEvent {
+  int32 current_turn_player_index = 1;
+  int32 timeout_seconds = 2;
+}
+
+message CardDealtEvent {
+  string player_id = 1;
+  repeated int32 cards = 2; // Only sent to the specific player, others just get count
+}

@@ -1,0 +1,2554 @@
+/**
+ * CARD GAME ECOSYSTEM - REAL DATA CLIENT CONTROLLER (V2)
+ */
+
+// Global Application State
+const state = {
+    token: localStorage.getItem('cardgame_token') || '',
+    user: JSON.parse(localStorage.getItem('cardgame_user') || 'null'),
+    balance: 0,
+    currentRoom: null,   // { code, tableId, gameType, expireTime }
+    hand: [],            // Array of { rawValue, rank, suit, displayName }
+    phoms: [],           // Array of arrays of cards (Ta La)
+    trashCards: [],      // Remaining trash cards (Ta La)
+    selectedCards: new Set(),
+    activeGameType: 'tala', // 'tala' | 'poker' | 'tienlen' | 'sam'
+    stakePerRound: 2000,    // chip per round/hand stake
+    stakeUnit: 'van',       // 'van' (per round) | 'la' (per card, Sam Loc)
+    minBuyIn: 20000,        // min chips to enter
+    roomCountdownInterval: null,
+    playerPollInterval: null,
+    pot: 0,
+    deckRemaining: 52,
+    discardPile: [],
+    pokerPhase: 'preflop',  // preflop|flop|turn|river|showdown
+    pokerCommunity: [],     // community cards
+    pokerCurrentBet: 0,
+    authMode: 'login',
+    chatMessages: [],
+    playerCount: 1
+};
+
+// Web Audio API Synthesizer
+const audio = {
+    ctx: null,
+    init() {
+        if (!this.ctx) {
+            this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+    },
+    playCardSound() {
+        try {
+            this.init();
+            const now = this.ctx.currentTime;
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(450, now);
+            osc.frequency.exponentialRampToValueAtTime(150, now + 0.08);
+            gain.gain.setValueAtTime(0.3, now);
+            gain.gain.linearRampToValueAtTime(0.01, now + 0.08);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start(now);
+            osc.stop(now + 0.09);
+        } catch (e) { }
+    },
+    playChipSound() {
+        try {
+            this.init();
+            const now = this.ctx.currentTime;
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(2400, now);
+            osc.frequency.exponentialRampToValueAtTime(1200, now + 0.06);
+            gain.gain.setValueAtTime(0.4, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.06);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start(now);
+            osc.stop(now + 0.07);
+        } catch (e) { }
+    },
+    playWinSound() {
+        try {
+            this.init();
+            const notes = [523.25, 659.25, 783.99, 1046.50];
+            notes.forEach((freq, idx) => {
+                const now = this.ctx.currentTime + idx * 0.1;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(freq, now);
+                gain.gain.setValueAtTime(0.25, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.36);
+            });
+        } catch (e) { }
+    },
+    playDealSound() {
+        // Rapid card-flipping sound burst
+        try {
+            this.init();
+            for (let i = 0; i < 4; i++) {
+                const now = this.ctx.currentTime + i * 0.07;
+                const buf = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.05, this.ctx.sampleRate);
+                const data = buf.getChannelData(0);
+                for (let j = 0; j < data.length; j++) {
+                    data[j] = (Math.random() * 2 - 1) * (1 - j / data.length);
+                }
+                const src = this.ctx.createBufferSource();
+                src.buffer = buf;
+                const filt = this.ctx.createBiquadFilter();
+                filt.type = 'bandpass';
+                filt.frequency.value = 1800;
+                const gain = this.ctx.createGain();
+                gain.gain.setValueAtTime(0.15, now);
+                src.connect(filt);
+                filt.connect(gain);
+                gain.connect(this.ctx.destination);
+                src.start(now);
+            }
+        } catch (e) { }
+    },
+    playLossSound() {
+        try {
+            this.init();
+            const notes = [400, 320, 240];
+            notes.forEach((freq, idx) => {
+                const now = this.ctx.currentTime + idx * 0.15;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(freq, now);
+                gain.gain.setValueAtTime(0.18, now);
+                gain.gain.linearRampToValueAtTime(0.01, now + 0.25);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.26);
+            });
+        } catch (e) { }
+    }
+};
+
+// UI Notification Toasts
+function showToast(message, type = 'success') {
+    const container = document.getElementById('toast-container');
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.innerHTML = `<span>${type === 'success' ? '✔' : '✖'}</span> <span>${message}</span>`;
+    container.appendChild(toast);
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+    }, 3500);
+}
+
+// ==========================================================================
+// CUSTOM ASYNC CONFIRM & PROMPT DIALOG POPUP
+// ==========================================================================
+let _customDialogResolver = null;
+
+function showConfirmDialog({ title = 'Xác Nhận', message = '', confirmText = 'Đồng Ý', cancelText = 'Hủy', type = 'info', icon = '' }) {
+    return new Promise((resolve) => {
+        _customDialogResolver = resolve;
+        const modal = document.getElementById('custom-dialog-modal');
+        const titleEl = document.getElementById('custom-dialog-title');
+        const msgEl = document.getElementById('custom-dialog-message');
+        const iconEl = document.getElementById('custom-dialog-icon');
+        const inputGroup = document.getElementById('custom-dialog-input-group');
+        const confirmBtn = document.getElementById('custom-dialog-confirm-btn');
+        const cancelBtn = document.getElementById('custom-dialog-cancel-btn');
+
+        if (!modal) {
+            resolve(window.confirm(message.replace(/<[^>]+>/g, '')));
+            return;
+        }
+
+        let defaultIcon = 'ℹ️';
+        confirmBtn.className = 'btn btn-primary';
+        if (type === 'danger') {
+            defaultIcon = '🚨';
+            confirmBtn.className = 'btn btn-danger';
+        } else if (type === 'success') {
+            defaultIcon = '✔';
+            confirmBtn.className = 'btn btn-success';
+        } else if (type === 'warning') {
+            defaultIcon = '⚠️';
+            confirmBtn.className = 'btn btn-warning';
+        }
+
+        iconEl.textContent = icon || defaultIcon;
+        titleEl.textContent = title;
+        msgEl.innerHTML = message;
+        inputGroup.style.display = 'none';
+
+        confirmBtn.textContent = confirmText;
+        cancelBtn.textContent = cancelText;
+        cancelBtn.style.display = 'inline-block';
+
+        modal.classList.add('active');
+        confirmBtn.focus();
+    });
+}
+
+function showPromptDialog({ title = 'Nhập Thông Tin', message = '', placeholder = '', defaultValue = '', confirmText = 'Xác Nhận', cancelText = 'Hủy', type = 'info', icon = '' }) {
+    return new Promise((resolve) => {
+        _customDialogResolver = resolve;
+        const modal = document.getElementById('custom-dialog-modal');
+        const titleEl = document.getElementById('custom-dialog-title');
+        const msgEl = document.getElementById('custom-dialog-message');
+        const iconEl = document.getElementById('custom-dialog-icon');
+        const inputGroup = document.getElementById('custom-dialog-input-group');
+        const inputEl = document.getElementById('custom-dialog-input');
+        const confirmBtn = document.getElementById('custom-dialog-confirm-btn');
+        const cancelBtn = document.getElementById('custom-dialog-cancel-btn');
+
+        if (!modal) {
+            resolve(window.prompt(message.replace(/<[^>]+>/g, ''), defaultValue));
+            return;
+        }
+
+        let defaultIcon = '✏️';
+        confirmBtn.className = 'btn btn-primary';
+        if (type === 'danger') {
+            defaultIcon = '⚠️';
+            confirmBtn.className = 'btn btn-danger';
+        } else if (type === 'warning') {
+            defaultIcon = '🪙';
+            confirmBtn.className = 'btn btn-warning';
+        }
+
+        iconEl.textContent = icon || defaultIcon;
+        titleEl.textContent = title;
+        msgEl.innerHTML = message;
+
+        inputGroup.style.display = 'block';
+        inputEl.placeholder = placeholder;
+        inputEl.value = defaultValue;
+
+        confirmBtn.textContent = confirmText;
+        cancelBtn.textContent = cancelText;
+        cancelBtn.style.display = 'inline-block';
+
+        modal.classList.add('active');
+        setTimeout(() => {
+            inputEl.focus();
+            inputEl.select();
+        }, 50);
+    });
+}
+
+function closeCustomDialog(result) {
+    const modal = document.getElementById('custom-dialog-modal');
+    if (modal) modal.classList.remove('active');
+    if (_customDialogResolver) {
+        _customDialogResolver(result);
+        _customDialogResolver = null;
+    }
+}
+
+// In-Modal Alert Box (Warnings / Errors)
+function showAuthAlert(message, type = 'error') {
+    const alertBox = document.getElementById('auth-alert');
+    const modalDialog = document.querySelector('.modal-dialog');
+    alertBox.style.display = 'flex';
+    alertBox.className = `auth-alert alert-${type}`;
+    alertBox.innerHTML = `<span>${type === 'error' ? '⚠️' : 'ℹ️'}</span> <span>${message}</span>`;
+
+    modalDialog.classList.remove('shake');
+    void modalDialog.offsetWidth; // Trigger reflow
+    modalDialog.classList.add('shake');
+}
+
+function clearAuthAlert() {
+    const alertBox = document.getElementById('auth-alert');
+    alertBox.style.display = 'none';
+    alertBox.textContent = '';
+    document.querySelectorAll('.form-input').forEach(i => i.classList.remove('input-error'));
+}
+
+// API Helper
+async function apiCall(endpoint, method = 'GET', body = null) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (state.token) {
+        headers['Authorization'] = `Bearer ${state.token}`;
+    }
+
+    const res = await fetch(endpoint, {
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : null
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        const errorMsg = data.message || data.title || (typeof data === 'string' ? data : 'Lỗi xử lý yêu cầu');
+        throw new Error(errorMsg);
+    }
+    return data;
+}
+
+// Auth Logic with Real Data & Validation
+async function executeAuth() {
+    clearAuthAlert();
+    const usernameInput = document.getElementById('input-username');
+    const passwordInput = document.getElementById('input-password');
+    const repasswordInput = document.getElementById('input-repassword');
+
+    const username = usernameInput.value.trim();
+    const password = passwordInput.value.trim();
+
+    // 1. Validation Checks
+    if (!username) {
+        usernameInput.classList.add('input-error');
+        usernameInput.focus();
+        showAuthAlert('Vui lòng nhập tên tài khoản!', 'error');
+        return;
+    }
+
+    if (username.length < 3) {
+        usernameInput.classList.add('input-error');
+        usernameInput.focus();
+        showAuthAlert('Tên tài khoản quá ngắn (tối thiểu 3 ký tự)!', 'error');
+        return;
+    }
+
+    if (/\s/.test(username)) {
+        usernameInput.classList.add('input-error');
+        usernameInput.focus();
+        showAuthAlert('Tên tài khoản không được chứa khoảng trắng!', 'error');
+        return;
+    }
+
+    if (!password) {
+        passwordInput.classList.add('input-error');
+        passwordInput.focus();
+        showAuthAlert('Vui lòng nhập mật khẩu!', 'error');
+        return;
+    }
+
+    if (password.length < 6) {
+        passwordInput.classList.add('input-error');
+        passwordInput.focus();
+        showAuthAlert('Mật khẩu phải có độ dài từ 6 ký tự trở lên!', 'error');
+        return;
+    }
+
+    // Register mode check
+    if (state.authMode === 'register') {
+        const repassword = repasswordInput.value.trim();
+        if (password !== repassword) {
+            repasswordInput.classList.add('input-error');
+            repasswordInput.focus();
+            showAuthAlert('Mật khẩu xác nhận không khớp! Vui lòng nhập lại.', 'error');
+            return;
+        }
+
+        try {
+            await apiCall('/api/auth/register', 'POST', { username, password });
+            showToast('Đăng ký tài khoản thành công! Tự động đăng nhập...');
+            await loginUser(username, password);
+        } catch (err) {
+            showAuthAlert(err.message, 'error');
+        }
+    } else {
+        // Login mode
+        try {
+            await loginUser(username, password);
+        } catch (err) {
+            showAuthAlert(err.message, 'error');
+        }
+    }
+}
+
+async function loginUser(username, password) {
+    try {
+        const res = await apiCall('/api/auth/login', 'POST', { username, password });
+        state.token = res.token;
+        state.user = { id: res.userId, username: res.username || username, role: res.role || 'user' };
+        localStorage.setItem('cardgame_token', res.token);
+        localStorage.setItem('cardgame_user', JSON.stringify(state.user));
+
+        closeModal('auth-modal');
+        showToast(`Đăng nhập thành công! Chào mừng ${state.user.username}.`);
+        updateAuthUI();
+        await fetchWalletBalance();
+    } catch (e) {
+        showAuthAlert(e.message, 'error');
+        shakeModal('auth-modal');
+    }
+}
+
+function handleLogout() {
+    state.token = '';
+    state.user = null;
+    state.balance = 0;
+    localStorage.removeItem('cardgame_token');
+    localStorage.removeItem('cardgame_user');
+    updateAuthUI();
+    showToast('Đã đăng xuất tài khoản.');
+    switchScreen('screen-lobby');
+}
+
+async function fetchWalletBalance() {
+    if (!state.token) return;
+    try {
+        const res = await apiCall('/api/wallet/balance', 'GET');
+        state.balance = res.balance;
+        document.getElementById('header-chip-count').textContent = Number(state.balance).toLocaleString();
+        document.getElementById('seat-self-chips').textContent = Number(state.balance).toLocaleString() + ' 🪙';
+    } catch (e) { }
+}
+
+async function topUpChips(amount = 10000) {
+    if (!state.token) {
+        setAuthMode('login');
+        openModal('auth-modal');
+        showAuthAlert('Vui lòng đăng nhập để nạp chip vào ví!', 'warning');
+        return;
+    }
+    audio.playChipSound();
+    try {
+        const res = await apiCall('/api/wallet/transfer', 'POST', { amount });
+        state.balance = res.newBalance;
+        document.getElementById('header-chip-count').textContent = Number(state.balance).toLocaleString();
+        document.getElementById('seat-self-chips').textContent = Number(state.balance).toLocaleString() + ' 🪙';
+        showToast(`Đã nạp thành công ${Number(amount).toLocaleString()} chip (giao dịch ACID)!`);
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+function updateAuthUI() {
+    const authActions = document.getElementById('auth-actions');
+    const userBar = document.getElementById('user-profile-bar');
+    const adminBtn = document.getElementById('btn-admin-portal');
+
+    if (state.token && state.user) {
+        authActions.style.display = 'none';
+        userBar.style.display = 'flex';
+        
+        const isAdmin = state.user.role === 'admin' || state.user.username?.toLowerCase() === 'admin';
+        document.getElementById('header-username').innerHTML = `${state.user.username} ${isAdmin ? '<span class="role-badge role-admin">ADMIN</span>' : ''}`;
+        document.getElementById('seat-self-name').textContent = state.user.username + (isAdmin ? ' 👑 (Admin)' : ' (Bạn)');
+        document.getElementById('seat-self-avatar').textContent = isAdmin ? '👑' : '😎';
+
+        if (adminBtn) {
+            adminBtn.style.display = isAdmin ? 'inline-flex' : 'none';
+        }
+
+        if (isAdmin) {
+            checkAdminPendingDepositsCount();
+        }
+
+        fetchWalletBalance();
+    } else {
+        authActions.style.display = 'flex';
+        userBar.style.display = 'none';
+        if (adminBtn) adminBtn.style.display = 'none';
+        document.getElementById('header-chip-count').textContent = '0';
+        document.getElementById('seat-self-name').textContent = 'Bạn (Chưa đăng nhập)';
+        document.getElementById('seat-self-chips').textContent = '0 🪙';
+    }
+}
+
+// ==========================================================================
+// QR PAYMENT & DEPOSIT CONTROLLER (DUYỆT NẠP TIỀN)
+// ==========================================================================
+let currentDepositAmount = 100000;
+
+function openDepositModal() {
+    if (!state.token) {
+        setAuthMode('login');
+        openModal('auth-modal');
+        showAuthAlert('Vui lòng đăng nhập tài khoản trước khi nạp chip!', 'warning');
+        return;
+    }
+    updateDepositDisplay(100000);
+    const alertBox = document.getElementById('deposit-status-alert');
+    if (alertBox) alertBox.style.display = 'none';
+    openModal('deposit-modal');
+    loadMyDepositHistory();
+}
+
+function updateDepositDisplay(amount) {
+    currentDepositAmount = amount;
+    const formatted = Number(amount).toLocaleString();
+    const amountEl = document.getElementById('qr-display-amount');
+    const syntaxEl = document.getElementById('qr-display-syntax');
+    const confirmBtn = document.getElementById('btn-confirm-deposit');
+
+    if (amountEl) amountEl.textContent = `${formatted} VNĐ`;
+    if (syntaxEl) syntaxEl.textContent = `NAP ${state.user?.username || 'player'}`;
+    if (confirmBtn) confirmBtn.textContent = `✔ Xác Nhận Đã Chuyển Khoản (+${formatted} Chip)`;
+}
+
+function selectDepositDenom(btn) {
+    document.querySelectorAll('.denom-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('input-custom-deposit').value = '';
+    const amt = parseInt(btn.dataset.amount);
+    updateDepositDisplay(amt);
+}
+
+function onCustomDepositInput(val) {
+    document.querySelectorAll('.denom-btn').forEach(b => b.classList.remove('active'));
+    let amt = parseInt(val) || 0;
+    if (amt > 0) {
+        updateDepositDisplay(amt);
+    }
+}
+
+async function confirmDepositPayment() {
+    if (!state.token) {
+        openModal('auth-modal');
+        return;
+    }
+    if (currentDepositAmount < 10000) {
+        showToast('Số tiền nạp tối thiểu là 10.000 VNĐ!', 'error');
+        return;
+    }
+
+    const transferCode = `NAP ${state.user?.username || 'player'}`;
+    audio.playChipSound();
+
+    try {
+        const res = await apiCall('/api/deposit/request', 'POST', {
+            amount: currentDepositAmount,
+            transferCode: transferCode
+        });
+
+        const alertBox = document.getElementById('deposit-status-alert');
+        if (alertBox) {
+            alertBox.style.display = 'block';
+            alertBox.className = 'deposit-alert-box deposit-alert-pending';
+            alertBox.innerHTML = `
+                <strong>⏳ LỆNH NẠP ĐÃ ĐƯỢC GỬI THÀNH CÔNG!</strong><br>
+                Số tiền: <strong>${Number(currentDepositAmount).toLocaleString()} VNĐ</strong> (${Number(currentDepositAmount).toLocaleString()} Chip)<br>
+                Mã giao dịch: <code>${transferCode}</code><br>
+                <em>Admin đang kiểm tra tài khoản ngân hàng và sẽ duyệt cộng chip ngay cho bạn!</em>
+            `;
+        }
+
+        showToast('Đã gửi yêu cầu nạp tiền! Vui lòng chờ Admin duyệt.');
+        await loadMyDepositHistory();
+
+        // Refresh admin pending badge if current user is admin
+        if (state.user?.role === 'admin') {
+            checkAdminPendingDepositsCount();
+        }
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+async function loadMyDepositHistory() {
+    if (!state.token) return;
+    const listEl = document.getElementById('my-deposit-history-list');
+    if (!listEl) return;
+
+    try {
+        const list = await apiCall('/api/deposit/my-requests', 'GET');
+        if (!list || list.length === 0) {
+            listEl.innerHTML = '<div style="font-size: 0.75rem; color: #64748b; text-align: center; padding: 6px;">Chưa có yêu cầu nạp nào</div>';
+            return;
+        }
+
+        listEl.innerHTML = '';
+        list.forEach(item => {
+            const time = new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' ' + new Date(item.createdAt).toLocaleDateString();
+            let statusBadge = '<span class="status-badge status-pending">⏳ Chờ Duyệt</span>';
+            if (item.status === 'Approved') {
+                statusBadge = '<span class="status-badge status-approved">✔ Đã Cộng Chip</span>';
+            } else if (item.status === 'Rejected') {
+                statusBadge = `<span class="status-badge status-rejected" title="${item.rejectReason || ''}">✖ Bị Từ Chối</span>`;
+            }
+
+            const div = document.createElement('div');
+            div.className = 'my-deposit-item';
+            div.innerHTML = `
+                <div>
+                    <strong style="color: #fbbf24;">+${Number(item.amount).toLocaleString()} đ</strong>
+                    <span style="color: #64748b; font-size: 0.7rem; margin-left: 6px;">(${item.transferCode})</span>
+                    <div style="font-size: 0.68rem; color: #94a3b8;">${time}</div>
+                </div>
+                <div>${statusBadge}</div>
+            `;
+            listEl.appendChild(div);
+        });
+    } catch (e) {}
+}
+
+function copyTransferSyntax() {
+    const syntax = `NAP ${state.user?.username || 'player'}`;
+    navigator.clipboard.writeText(syntax);
+    showToast(`Đã sao chép nội dung chuyển khoản: "${syntax}"`);
+}
+
+// ==========================================================================
+// PROFESSIONAL ADMIN MANAGEMENT PORTAL CONTROLLER
+// ==========================================================================
+let currentDepositFilter = 'Pending';
+let currentBanTarget = null; // { userId, username }
+
+async function checkAdminPendingDepositsCount() {
+    try {
+        const stats = await apiCall('/api/admin/stats', 'GET');
+        const count = stats.pendingDepositsCount || 0;
+        
+        const headerBadge = document.getElementById('header-admin-pending-badge');
+        if (headerBadge) {
+            headerBadge.textContent = count;
+            headerBadge.style.display = count > 0 ? 'flex' : 'none';
+        }
+
+        const tabBadge = document.getElementById('admin-pending-badge');
+        if (tabBadge) {
+            tabBadge.textContent = count;
+            tabBadge.style.display = count > 0 ? 'inline-block' : 'none';
+        }
+
+        const filterCount = document.getElementById('count-pending-filter');
+        if (filterCount) filterCount.textContent = count;
+    } catch (e) {}
+}
+
+async function openAdminPortal() {
+    openModal('admin-modal');
+    // Default to Overview tab
+    switchAdminTab('admin-view-overview');
+    await loadAdminDashboard();
+}
+
+function switchAdminTab(targetTabId) {
+    // Update sidebar nav items
+    document.querySelectorAll('.admin-nav-item').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === targetTabId);
+    });
+    // Legacy tab buttons
+    document.querySelectorAll('.admin-tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === targetTabId);
+    });
+    // Show correct panel (new: .admin-panel, old: .admin-tab-pane)
+    document.querySelectorAll('.admin-panel, .admin-tab-pane').forEach(pane => {
+        pane.classList.toggle('active', pane.id === targetTabId);
+    });
+
+    if (targetTabId === 'admin-view-overview')  loadAdminDashboard();
+    else if (targetTabId === 'admin-view-deposits') loadAdminDeposits();
+    else if (targetTabId === 'admin-view-users')    loadAdminUsers();
+    else if (targetTabId === 'admin-view-tables')   loadAdminTables();
+    else if (targetTabId === 'admin-view-logs')     loadAdminLogs();
+    else if (targetTabId === 'admin-view-spin')     loadAdminSpinStats();
+}
+
+// --- TAB 1: OVERVIEW ---
+async function loadAdminDashboard() {
+    try {
+        const stats = await apiCall('/api/admin/stats', 'GET');
+        document.getElementById('admin-stat-users').textContent = stats.totalUsers || 0;
+        document.getElementById('admin-stat-chips').textContent = Number(stats.totalChipsInCirculation || 0).toLocaleString();
+        document.getElementById('admin-stat-pending').textContent = stats.pendingDepositsCount || 0;
+        document.getElementById('admin-stat-banned').textContent = stats.bannedUsersCount || 0;
+        document.getElementById('admin-stat-rooms').textContent = stats.activeTables || 0;
+
+        await checkAdminPendingDepositsCount();
+    } catch (e) {
+        showToast('Lỗi khi tải thông số quản trị: ' + e.message, 'error');
+    }
+}
+
+// --- TAB 2: DEPOSIT APPROVAL ---
+async function loadAdminDeposits() {
+    const tbody = document.getElementById('admin-deposits-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #94a3b8; padding: 1rem;">Đang tải danh sách lệnh nạp...</td></tr>';
+
+    try {
+        const deposits = await apiCall(`/api/admin/deposits?status=${currentDepositFilter}`, 'GET');
+        tbody.innerHTML = '';
+
+        if (!deposits || deposits.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #64748b; padding: 1.5rem;">Không có yêu cầu nạp nào (${currentDepositFilter}).</td></tr>`;
+            return;
+        }
+
+        deposits.forEach(d => {
+            const time = new Date(d.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' ' + new Date(d.createdAt).toLocaleDateString();
+            let statusBadge = '<span class="status-badge status-pending">⏳ Chờ Duyệt</span>';
+            let actionsHtml = '';
+
+            if (d.status === 'Pending') {
+                actionsHtml = `
+                    <div style="display: flex; gap: 4px;">
+                        <button class="btn btn-success btn-chip-action" onclick="adminApproveDeposit('${d.id}', '${d.username}', ${d.amount})">✔ Duyệt Nạp</button>
+                        <button class="btn btn-danger btn-chip-action" onclick="adminRejectDeposit('${d.id}', '${d.username}')">✖ Từ Chối</button>
+                    </div>
+                `;
+            } else if (d.status === 'Approved') {
+                statusBadge = '<span class="status-badge status-approved">✔ Đã Duyệt</span>';
+                actionsHtml = `<span style="font-size: 0.72rem; color: #34d399;">Đã cộng ${Number(d.amount).toLocaleString()} chip</span>`;
+            } else {
+                statusBadge = '<span class="status-badge status-rejected">✖ Từ Chối</span>';
+                actionsHtml = `<span style="font-size: 0.72rem; color: #f87171;" title="${d.rejectReason || ''}">${d.rejectReason || 'Từ chối'}</span>`;
+            }
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td style="color: #94a3b8; font-size: 0.78rem;">${time}</td>
+                <td><strong style="color: #f8fafc;">${d.username}</strong></td>
+                <td style="color: #fbbf24; font-weight: 700;">+${Number(d.amount).toLocaleString()} VNĐ</td>
+                <td><code style="background: rgba(0,0,0,0.4); padding: 2px 6px; border-radius: 4px; color: #93c5fd;">${d.transferCode}</code></td>
+                <td>${statusBadge}</td>
+                <td>${actionsHtml}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        await checkAdminPendingDepositsCount();
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #f87171; padding: 1rem;">Lỗi: ${e.message}</td></tr>`;
+    }
+}
+
+window.adminApproveDeposit = async function(depositId, username, amount) {
+    const confirmed = await showConfirmDialog({
+        title: '✔ Duyệt Lệnh Nạp Chip',
+        message: `Xác nhận duyệt nạp <strong>${Number(amount).toLocaleString()} chip</strong> cho người chơi <strong>"${escapeHtml(username)}"</strong>?`,
+        confirmText: '✔ Duyệt Nạp',
+        cancelText: 'Hủy',
+        type: 'success',
+        icon: '💳'
+    });
+    if (!confirmed) return;
+
+    try {
+        const res = await apiCall('/api/admin/deposits/approve', 'POST', { depositId });
+        audio.playWinSound();
+        showToast(res.message);
+        await loadAdminDeposits();
+        await loadAdminDashboard();
+        if (state.user?.username === username) fetchWalletBalance();
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+};
+
+window.adminRejectDeposit = async function(depositId, username) {
+    const reason = await showPromptDialog({
+        title: '✖ Từ Chối Lệnh Nạp',
+        message: `Nhập lý do từ chối lệnh nạp của người chơi <strong>"${escapeHtml(username)}"</strong>:`,
+        defaultValue: 'Không nhận được tiền hoặc sai cú pháp chuyển khoản',
+        placeholder: 'Nhập lý do từ chối...',
+        confirmText: '✖ Từ Chối Lệnh',
+        cancelText: 'Hủy',
+        type: 'danger',
+        icon: '⚠️'
+    });
+    if (reason === null) return;
+
+    try {
+        const res = await apiCall('/api/admin/deposits/reject', 'POST', { depositId, reason });
+        showToast(res.message);
+        await loadAdminDeposits();
+        await loadAdminDashboard();
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+};
+
+// --- TAB 3: USER MANAGEMENT & BAN ---
+async function loadAdminUsers() {
+    const tbody = document.getElementById('admin-users-tbody');
+    if (!tbody) return;
+    const searchTerm = document.getElementById('admin-search-users')?.value || '';
+
+    try {
+        const users = await apiCall(`/api/admin/users?search=${encodeURIComponent(searchTerm)}`, 'GET');
+        tbody.innerHTML = '';
+
+        if (!users || users.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #64748b; padding: 1.5rem;">Không tìm thấy người chơi nào.</td></tr>';
+            return;
+        }
+
+        users.forEach(u => {
+            let statusBadge = '<span class="status-badge status-active">🟢 Hoạt Động</span>';
+            if (u.isBanned) {
+                const banExpire = u.bannedUntil ? new Date(u.bannedUntil).toLocaleDateString() : 'Vĩnh viễn';
+                statusBadge = `<span class="status-badge status-banned" title="${u.banReason || ''}">🔴 Khóa (${banExpire})</span>`;
+            }
+
+            let banActionBtn = '';
+            if (!u.isAdmin) {
+                if (u.isBanned) {
+                    banActionBtn = `<button class="btn btn-success btn-chip-action" onclick="adminUnbanUser('${u.id}', '${u.username}')">🔓 Mở Khóa</button>`;
+                } else {
+                    banActionBtn = `<button class="btn btn-danger btn-chip-action" onclick="openBanModal('${u.id}', '${u.username}')">🚫 Khóa Nick</button>`;
+                }
+            }
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>
+                    <strong style="color: #f8fafc;">${u.username}</strong>
+                    ${u.isAdmin ? '<span class="role-badge role-admin" style="margin-left: 6px;">ADMIN</span>' : ''}
+                </td>
+                <td style="color: #fbbf24; font-weight: 700;">${Number(u.balance).toLocaleString()} 🪙</td>
+                <td>
+                    <span class="role-badge ${u.isAdmin ? 'role-admin' : 'role-user'}">${u.isAdmin ? 'Quản Trị Viên' : 'Người Chơi'}</span>
+                </td>
+                <td>${statusBadge}</td>
+                <td>
+                    <div style="display: flex; gap: 4px;">
+                        <button class="btn btn-secondary btn-chip-action" onclick="adminAdjustChips('${u.id}', '${u.username}', 50000)">+50K</button>
+                        <button class="btn btn-secondary btn-chip-action" onclick="adminAdjustChips('${u.id}', '${u.username}', 200000)">+200K</button>
+                        <button class="btn btn-danger btn-chip-action" onclick="adminAdjustChips('${u.id}', '${u.username}', -50000)">-50K</button>
+                        <button class="btn btn-primary btn-chip-action" onclick="adminCustomAdjustChips('${u.id}', '${u.username}')">Tùy Chỉnh</button>
+                    </div>
+                </td>
+                <td>${banActionBtn}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #f87171; padding: 1rem;">Lỗi: ${e.message}</td></tr>`;
+    }
+}
+
+window.adminAdjustChips = async function(userId, username, amount) {
+    try {
+        const res = await apiCall('/api/admin/adjust-balance', 'POST', { userId, amount });
+        showToast(res.message);
+        await loadAdminUsers();
+        await loadAdminDashboard();
+        if (state.user?.username === username) fetchWalletBalance();
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+};
+
+window.adminCustomAdjustChips = async function(userId, username) {
+    const input = await showPromptDialog({
+        title: '🪙 Điều Chỉnh Số Dư Ví',
+        message: `Nhập số chip muốn cộng (+) hoặc trừ (-) cho tài khoản <strong>"${escapeHtml(username)}"</strong>:`,
+        defaultValue: '100000',
+        placeholder: 'Ví dụ: 50000 hoặc -20000',
+        confirmText: 'Xác Nhận',
+        cancelText: 'Hủy',
+        type: 'warning',
+        icon: '🪙'
+    });
+    if (input === null) return;
+    const amount = parseInt(input);
+    if (isNaN(amount) || amount === 0) {
+        showToast('Vui lòng nhập số chip hợp lệ!', 'error');
+        return;
+    }
+    await window.adminAdjustChips(userId, username, amount);
+};
+
+// Ban Modal Functions
+window.openBanModal = function(userId, username) {
+    currentBanTarget = { userId, username };
+    document.getElementById('ban-target-username').textContent = username;
+    document.getElementById('ban-duration-select').value = "3";
+    document.getElementById('ban-reason-input').value = "Nghi vấn gian lận bài / vi phạm quy định";
+    openModal('ban-user-modal');
+};
+
+async function executeConfirmBan() {
+    if (!currentBanTarget) return;
+    const days = parseInt(document.getElementById('ban-duration-select').value);
+    const reason = document.getElementById('ban-reason-input').value.trim() || 'Vi phạm quy định hệ thống';
+
+    try {
+        const res = await apiCall('/api/admin/ban', 'POST', {
+            userId: currentBanTarget.userId,
+            days: days,
+            reason: reason
+        });
+        closeModal('ban-user-modal');
+        showToast(res.message);
+        await loadAdminUsers();
+        await loadAdminDashboard();
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+window.adminUnbanUser = async function(userId, username) {
+    const confirmed = await showConfirmDialog({
+        title: '🔓 Mở Khóa Tài Khoản',
+        message: `Xác nhận mở khóa tài khoản cho người chơi <strong>"${escapeHtml(username)}"</strong>?`,
+        confirmText: '🔓 Mở Khóa',
+        cancelText: 'Hủy',
+        type: 'success',
+        icon: '🔓'
+    });
+    if (!confirmed) return;
+
+    try {
+        const res = await apiCall('/api/admin/unban', 'POST', { userId });
+        showToast(res.message);
+        await loadAdminUsers();
+        await loadAdminDashboard();
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+};
+
+// --- TAB 4: ACTIVE TABLES & KICK ---
+async function loadAdminTables() {
+    const container = document.getElementById('admin-tables-list');
+    if (!container) return;
+    container.innerHTML = '<div style="color: #94a3b8; padding: 1rem;">Đang tải danh sách bàn chơi...</div>';
+
+    try {
+        const tables = await apiCall('/api/admin/tables', 'GET');
+        container.innerHTML = '';
+
+        if (!tables || tables.length === 0) {
+            container.innerHTML = '<div style="color: #64748b; padding: 1.5rem; text-align: center; grid-column: 1 / -1;">Hiện không có bàn chơi nào đang mở.</div>';
+            return;
+        }
+
+        tables.forEach(t => {
+            const card = document.createElement('div');
+            card.className = 'admin-table-card';
+
+            let playersHtml = '';
+            t.players.forEach(p => {
+                const isPAdmin = p.username.toLowerCase() === 'admin';
+                playersHtml += `
+                    <div class="admin-table-player-row">
+                        <div>
+                            <strong>${p.username}</strong>
+                            <span style="color: #fbbf24; margin-left: 6px;">${Number(p.chips).toLocaleString()} 🪙</span>
+                            <span style="color: #94a3b8; font-size: 0.7rem; margin-left: 4px;">(Ghế ${p.seatIndex + 1})</span>
+                        </div>
+                        <div>
+                            ${!isPAdmin ? `<button class="btn btn-danger btn-chip-action" onclick="adminKickPlayer('${t.tableId}', '${p.userId}', '${p.username}')">🚨 Kick</button>` : '<span class="role-badge role-admin">ADMIN</span>'}
+                        </div>
+                    </div>
+                `;
+            });
+
+            card.innerHTML = `
+                <div class="admin-table-card-header">
+                    <div>
+                        <strong style="color: #fbbf24; font-size: 1rem;">BÀN: ${t.roomCode}</strong>
+                        <span style="color: #94a3b8; font-size: 0.75rem; margin-left: 8px;">Cược min: ${Number(t.minBuyIn).toLocaleString()} 🪙</span>
+                    </div>
+                    <span class="status-badge status-active">${t.playerCount}/${t.maxPlayers} Người</span>
+                </div>
+                <div class="admin-table-players-list">
+                    ${playersHtml || '<div style="color: #64748b; font-size: 0.75rem;">Chưa có người ngồi</div>'}
+                </div>
+                <button type="button" class="btn btn-secondary btn-block" style="font-size: 0.75rem; padding: 0.35rem;" onclick="adminCloseTable('${t.tableId}')">
+                    🛑 Giải Tán Bàn Chơi
+                </button>
+            `;
+            container.appendChild(card);
+        });
+    } catch (e) {
+        container.innerHTML = `<div style="color: #f87171; padding: 1rem;">Lỗi: ${e.message}</div>`;
+    }
+}
+
+window.adminKickPlayer = async function(tableId, userId, username) {
+    const confirmed = await showConfirmDialog({
+        title: '🚨 Mời Rời Bàn',
+        message: `Xác nhận mời người chơi <strong>"${escapeHtml(username)}"</strong> ra khỏi bàn chơi?`,
+        confirmText: '🚨 Kick Ngay',
+        cancelText: 'Hủy',
+        type: 'danger',
+        icon: '🚨'
+    });
+    if (!confirmed) return;
+
+    try {
+        const res = await apiCall('/api/admin/kick-player', 'POST', { tableId, userId });
+        showToast(res.message);
+        await loadAdminTables();
+        await loadAdminDashboard();
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+};
+
+window.adminCloseTable = async function(tableId) {
+    const confirmed = await showConfirmDialog({
+        title: '🛑 Giải Tán Bàn Chơi',
+        message: 'Xác nhận giải tán bàn chơi này? Tất cả người chơi trong phòng sẽ bị mời ra sảnh.',
+        confirmText: '🛑 Giải Tán',
+        cancelText: 'Hủy',
+        type: 'danger',
+        icon: '🛑'
+    });
+    if (!confirmed) return;
+
+    try {
+        const res = await apiCall('/api/admin/close-table', 'POST', { tableId });
+        showToast(res.message);
+        await loadAdminTables();
+        await loadAdminDashboard();
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+};
+
+// --- TAB 5: AUDIT LOGS ---
+async function loadAdminLogs() {
+    const tbody = document.getElementById('admin-logs-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #94a3b8; padding: 1rem;">Đang tải nhật ký...</td></tr>';
+
+    try {
+        const logs = await apiCall('/api/admin/logs', 'GET');
+        tbody.innerHTML = '';
+
+        if (!logs || logs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #64748b; padding: 1.5rem;">Chưa có nhật ký hoạt động nào.</td></tr>';
+            return;
+        }
+
+        logs.forEach(l => {
+            const time = new Date(l.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' ' + new Date(l.createdAt).toLocaleDateString();
+            
+            let actionBadge = `<span class="role-badge role-user">${l.actionType}</span>`;
+            if (l.actionType.includes('APPROVE')) actionBadge = `<span class="status-badge status-approved">✔ DUYỆT NẠP</span>`;
+            else if (l.actionType.includes('REJECT')) actionBadge = `<span class="status-badge status-rejected">✖ TỪ CHỐI</span>`;
+            else if (l.actionType.includes('BAN')) actionBadge = `<span class="status-badge status-banned">🚫 BAN USER</span>`;
+            else if (l.actionType.includes('UNBAN')) actionBadge = `<span class="status-badge status-active">🔓 MỞ KHÓA</span>`;
+            else if (l.actionType.includes('KICK')) actionBadge = `<span class="status-badge status-rejected">🚨 KICK BÀN</span>`;
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td style="color: #94a3b8; font-size: 0.78rem;">${time}</td>
+                <td><strong style="color: #fbbf24;">${l.adminUsername}</strong></td>
+                <td>${actionBadge}</td>
+                <td><strong style="color: #f8fafc;">${l.targetUser}</strong></td>
+                <td style="color: #cbd5e1; font-size: 0.8rem;">${l.details || ''}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: #f87171; padding: 1rem;">Lỗi: ${e.message}</td></tr>`;
+    }
+}
+
+// Screen Switcher
+function switchScreen(screenId) {
+    audio.playCardSound();
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    const target = document.getElementById(screenId);
+    if (target) target.classList.add('active');
+}
+
+// Modals & Tab Switching
+function openModal(modalId) {
+    try { clearAuthAlert(); } catch (e) { }
+    const el = document.getElementById(modalId);
+    if (el) el.classList.add('active');
+}
+
+function closeModal(modalId) {
+    const el = document.getElementById(modalId);
+    if (el) el.classList.remove('active');
+}
+
+function setAuthMode(mode) {
+    state.authMode = mode;
+    clearAuthAlert();
+    const tabLogin = document.getElementById('tab-auth-login');
+    const tabRegister = document.getElementById('tab-auth-register');
+    const groupRepass = document.getElementById('group-repassword');
+    const submitBtn = document.getElementById('form-auth-submit');
+
+    if (mode === 'register') {
+        tabRegister.classList.add('active');
+        tabLogin.classList.remove('active');
+        groupRepass.style.display = 'block';
+        submitBtn.textContent = 'Tạo Tài Khoản Mới';
+    } else {
+        tabLogin.classList.add('active');
+        tabRegister.classList.remove('active');
+        groupRepass.style.display = 'none';
+        submitBtn.textContent = 'Đăng Nhập';
+    }
+}
+
+// Room & Virtual Table Operations
+async function enterGame(gameType, stakePerRound, minBuyIn) {
+    if (!state.token) {
+        setAuthMode('login');
+        openModal('auth-modal');
+        showAuthAlert('Vui long dang nhap truoc khi vao ban choi!', 'warning');
+        return;
+    }
+
+    // Check balance
+    if (state.balance < minBuyIn) {
+        showToast(`So du khong du! Can toi thieu ${Number(minBuyIn).toLocaleString()} chip de vao ban nay.`, 'error');
+        openDepositModal();
+        return;
+    }
+
+    state.activeGameType = gameType;
+    state.stakePerRound = stakePerRound;
+    state.minBuyIn = minBuyIn;
+    state.stakeUnit = (gameType === 'sam') ? 'la' : 'van';
+
+    const gameTitles = {
+        'tala': 'TA LA (PHOM)',
+        'poker': 'TEXAS HOLDEM POKER',
+        'tienlen': 'TIEN LEN MIEN NAM',
+        'sam': 'SAM LOC'
+    };
+    document.getElementById('table-game-name').textContent = gameTitles[gameType] || gameType.toUpperCase();
+
+    // Format stake label
+    const stakeLabel = gameType === 'poker'
+        ? `BB ${Number(stakePerRound).toLocaleString()}`
+        : `${Number(stakePerRound).toLocaleString()}/${state.stakeUnit}`;
+    const stakeEl = document.getElementById('stake-info-tag');
+    if (stakeEl) stakeEl.textContent = `⚡ ${stakeLabel}`;
+
+    try {
+        const res = await apiCall('/api/room/create', 'POST', {
+            maxPlayers: 4,
+            minBuyIn: minBuyIn
+        });
+
+        state.currentRoom = {
+            code: res.roomCode,
+            tableId: res.tableId,
+            expireTime: Date.now() + 15 * 60 * 1000,
+            gameType
+        };
+
+        showToast(`Tao phong ${gameTitles[gameType]} thanh cong! Ma moi: ${res.roomCode}`);
+        openVirtualTable();
+        startRoomCountdown();
+        showWaitingOverlay();
+        startPlayerPolling();
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+async function joinRoomByCode(code) {
+    if (!state.token) {
+        setAuthMode('login');
+        openModal('auth-modal');
+        showAuthAlert('Vui long dang nhap truoc khi vao ban choi!', 'warning');
+        return;
+    }
+
+    if (!code || code.length !== 6 || !/^\d+$/.test(code)) {
+        showToast('Ma phong phai gom 6 chu so hop le!', 'error');
+        return;
+    }
+
+    try {
+        const res = await apiCall('/api/room/join', 'POST', { roomCode: code });
+        state.currentRoom = {
+            code: code,
+            tableId: res.tableId,
+            expireTime: Date.now() + 15 * 60 * 1000,
+            gameType: 'tala'
+        };
+        showToast(res.message);
+        openVirtualTable();
+        startRoomCountdown();
+        state.playerCount = 2;
+        updatePlayerCountUI(2);
+        hideWaitingOverlay();
+        addChatMessage('🎮 He thong', 'Ban da vao phong! Nhan "Chia Bai" de bat dau van.', 'system');
+        document.getElementById('chat-panel').style.display = 'flex';
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+function openVirtualTable() {
+    switchScreen('screen-table');
+    renderOpponentSeats();
+    state.playerCount = 1;
+    updatePlayerCountUI(1);
+    // Show correct action buttons for this game type
+    ['tala','poker','tienlen','sam'].forEach(g => {
+        const el = document.getElementById(`actions-${g}`);
+        if (el) el.style.display = (g === state.activeGameType) ? 'flex' : 'none';
+    });
+    // Show/hide phom zone
+    const phomZone = document.getElementById('phom-zone');
+    if (phomZone) phomZone.style.display = state.activeGameType === 'tala' ? 'flex' : 'none';
+    // Reset phase badge
+    const phaseBadge = document.getElementById('table-phase-badge');
+    if (phaseBadge) phaseBadge.textContent = 'Cho chia bai';
+}
+
+// ---- WAITING OVERLAY & PLAYER POLLING ----
+function getDealBtnId() {
+    const map = { tala: 'btn-deal-hand', poker: 'btn-deal-poker', tienlen: 'btn-deal-tienlen', sam: 'btn-deal-sam' };
+    return map[state.activeGameType] || 'btn-deal-hand';
+}
+
+function showWaitingOverlay() {
+    const overlay = document.getElementById('waiting-overlay');
+    if (overlay) {
+        overlay.style.display = 'flex';
+        const codeText = document.getElementById('waiting-room-code-text');
+        if (codeText && state.currentRoom?.code) codeText.textContent = state.currentRoom.code;
+    }
+    const dealBtn = document.getElementById(getDealBtnId());
+    if (dealBtn) { dealBtn.disabled = true; dealBtn.style.opacity = '0.5'; }
+    const ind = document.getElementById('table-turn-indicator');
+    if (ind) ind.textContent = '⏳ Cho nguoi choi vao ban...';
+    const pb = document.getElementById('table-phase-badge');
+    if (pb) pb.textContent = 'Cho nguoi choi';
+}
+
+function hideWaitingOverlay() {
+    const overlay = document.getElementById('waiting-overlay');
+    if (overlay) overlay.style.display = 'none';
+    const dealBtn = document.getElementById(getDealBtnId());
+    if (dealBtn) { dealBtn.disabled = false; dealBtn.style.opacity = '1'; }
+    const pb = document.getElementById('table-phase-badge');
+    if (pb) pb.textContent = 'San sang';
+}
+
+function updatePlayerCountUI(count) {
+    const el = document.getElementById('table-player-count');
+    if (el) el.textContent = count;
+
+    // Update waiting overlay player list
+    const listEl = document.getElementById('waiting-players-list');
+    if (listEl) {
+        listEl.innerHTML = `<div class="waiting-player-item">😎 ${state.user?.username || 'Bạn'} (Chủ bàn)</div>`;
+        for (let i = 1; i < count; i++) {
+            listEl.innerHTML += `<div class="waiting-player-item">👤 Người chơi ${i + 1}</div>`;
+        }
+    }
+}
+
+// Poll server for player count changes (simple polling since no WebSocket)
+function startPlayerPolling() {
+    if (state.playerPollInterval) clearInterval(state.playerPollInterval);
+    state.playerPollInterval = setInterval(async () => {
+        if (!state.currentRoom?.tableId || !state.token) return;
+        try {
+            // Try to get table info from admin API if available
+            const tables = await apiCall('/api/admin/tables', 'GET').catch(() => null);
+            if (tables) {
+                const myTable = tables.find(t => t.tableId === state.currentRoom.tableId);
+                if (myTable) {
+                    const count = myTable.playerCount || 1;
+                    if (count !== state.playerCount) {
+                        state.playerCount = count;
+                        updatePlayerCountUI(count);
+                        if (count >= 2) {
+                            hideWaitingOverlay();
+                            showToast(`🎴 Đủ ${count} người! Bàn sẵn sàng chia bài.`);
+                            addChatMessage('🎮 Hệ thống', `Đủ ${count} người chơi! Nhấn "Chia Bài" để bắt đầu ván.`, 'system');
+                            clearInterval(state.playerPollInterval);
+                        }
+                    }
+                    return;
+                }
+            }
+            // Fallback: if player is the host and room just created, count is 1
+            // When someone joins they call /api/room/join which registers them
+            // We trust the last join response to trigger a refresh
+        } catch(e) {}
+    }, 3000);
+}
+
+// Render real seat status (No fake bots)
+function renderOpponentSeats() {
+    const opponents = [
+        { id: 'north', label: 'Ghế Bắc' },
+        { id: 'west', label: 'Ghế Tây' },
+        { id: 'east', label: 'Ghế Đông' }
+    ];
+
+    const isAdmin = state.user?.role === 'admin' || state.user?.username?.toLowerCase() === 'admin';
+
+    opponents.forEach(seat => {
+        const nameEl = document.getElementById(`seat-${seat.id}-name`);
+        const chipsEl = document.getElementById(`seat-${seat.id}-chips`);
+        const cardsEl = document.getElementById(`seat-${seat.id}-cards`);
+        const kickBtn = document.getElementById(`btn-kick-${seat.id}`);
+
+        // Real room display: if waiting for friends, display room code
+        nameEl.innerHTML = `<span style="color: #94a3b8; cursor: pointer;" title="Bấm để sao chép mã">Đang chờ (Mã: <strong style="color: #fbbf24">${state.currentRoom?.code || '------'}</strong>)</span>`;
+        chipsEl.textContent = 'Chờ vào...';
+
+        // Render 4 mini cards facedown to simulate players
+        cardsEl.innerHTML = '';
+        for (let i = 0; i < 4; i++) {
+            const mini = document.createElement('div');
+            mini.className = 'mini-card-back';
+            cardsEl.appendChild(mini);
+        }
+
+        nameEl.onclick = () => {
+            if (state.currentRoom?.code) {
+                navigator.clipboard.writeText(state.currentRoom.code);
+                showToast(`Đã sao chép mã phòng ${state.currentRoom.code} vào bộ nhớ tạm!`);
+            }
+        };
+
+        if (kickBtn) {
+            kickBtn.style.display = isAdmin ? 'inline-block' : 'none';
+            kickBtn.onclick = async (e) => {
+                e.stopPropagation();
+                const confirmed = await showConfirmDialog({
+                    title: '👑 Kick Đối Thủ (Admin)',
+                    message: `Admin xác nhận kick người chơi ở <strong>${seat.label}</strong> ra khỏi bàn chơi?`,
+                    confirmText: '🚨 Kick',
+                    cancelText: 'Hủy',
+                    type: 'danger',
+                    icon: '👑'
+                });
+                if (confirmed) {
+                    if (state.currentRoom?.tableId) {
+                        apiCall('/api/admin/kick-player', 'POST', { tableId: state.currentRoom.tableId, userId: seat.id })
+                            .catch(() => {});
+                    }
+                    showToast(`Đã kick người chơi ở ${seat.label} khỏi bàn!`);
+                    nameEl.innerHTML = `<span style="color: #f87171;">Đã bị Admin kick</span>`;
+                    chipsEl.textContent = '--- 🪙';
+                    cardsEl.innerHTML = '';
+                }
+            };
+        }
+    });
+}
+
+function startRoomCountdown() {
+    if (state.roomCountdownInterval) clearInterval(state.roomCountdownInterval);
+    const codeElem = document.getElementById('table-room-code-display');
+    const timerElem = document.getElementById('table-room-timer-display');
+
+    if (codeElem && state.currentRoom) {
+        codeElem.textContent = state.currentRoom.code;
+    }
+
+    state.roomCountdownInterval = setInterval(() => {
+        if (!state.currentRoom) {
+            clearInterval(state.roomCountdownInterval);
+            return;
+        }
+        const remaining = Math.max(0, Math.floor((state.currentRoom.expireTime - Date.now()) / 1000));
+        const mins = Math.floor(remaining / 60);
+        const secs = remaining % 60;
+        if (timerElem) {
+            timerElem.textContent = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+        if (remaining <= 0) {
+            clearInterval(state.roomCountdownInterval);
+            showToast('Mã phòng đã hết hạn 15 phút (Redis TTL)!', 'error');
+        }
+    }, 1000);
+}
+
+// Card Dealing & Real Engine Logic
+const delay = (ms) => new Promise(r => setTimeout(r, ms));
+
+function animateOpponentDeal(numOpponents, cardCount) {
+    const seats = ['seat-north-cards', 'seat-west-cards', 'seat-east-cards'];
+    for (let s = 0; s < Math.min(numOpponents, 3); s++) {
+        const container = document.getElementById(seats[s]);
+        if (!container) continue;
+        container.innerHTML = '';
+        for (let c = 0; c < cardCount; c++) {
+            const back = document.createElement('div');
+            back.className = 'playing-card card-back card-mini card-deal-anim';
+            back.style.animationDelay = `${c * 55}ms`;
+            container.appendChild(back);
+        }
+    }
+}
+
+function sortHandTienLen() {
+    const order = ['3','4','5','6','7','8','9','10','J','Q','K','A','2'];
+    state.hand.sort((a, b) => order.indexOf(a.rank) - order.indexOf(b.rank));
+}
+
+function sortHandSam() {
+    const order = ['3','4','5','6','7','8','9','10','J','Q','K','A','2'];
+    state.hand.sort((a, b) => order.indexOf(a.rank) - order.indexOf(b.rank));
+}
+
+function checkBaoSam() {
+    const ranks = state.hand.map(c => c.rank);
+    const allThrees = ranks.every(r => r === '3');
+    const allTwos = ranks.every(r => r === '2');
+    if (allThrees || allTwos) {
+        const label = allThrees ? 'BAO SAM!' : 'BAO LOC!';
+        showResultBanner(`🎉 ${label} Ban thang tat ca - nguoi khac tra x3!`, 'win');
+        audio.playWinSound();
+        document.getElementById('eval-result-text').textContent = `${label} Thang ngay lap tuc! Thu x3 tu tat ca.`;
+    } else {
+        document.getElementById('eval-result-text').textContent = `Da chia 10 la - ${Number(state.stakePerRound).toLocaleString()} chip/la`;
+    }
+}
+
+async function dealNewRound() {
+    if (state.playerCount < 2) {
+        showToast('⚠️ Can it nhat 2 nguoi choi de chia bai!', 'error');
+        showWaitingOverlay();
+        return;
+    }
+
+    hideWaitingOverlay();
+    audio.playDealSound();
+
+    // Reset per-round state
+    state.discardPile = [];
+    state.selectedCards.clear();
+    if (state.activeGameType === 'poker') {
+        state.pokerPhase = 'preflop';
+        state.pokerCommunity = [];
+        state.pokerCurrentBet = state.stakePerRound;
+        const cc = document.getElementById('community-cards');
+        if (cc) { cc.style.display = 'none'; cc.innerHTML = ''; }
+    }
+
+    // Ante / initial pot per game rules
+    const numPlayers = Math.max(state.playerCount, 2);
+    let initPot = 0;
+    if (state.activeGameType === 'poker') {
+        initPot = Math.round(state.stakePerRound * 1.5); // SB + BB
+    } else if (state.activeGameType === 'sam') {
+        initPot = 0; // settled per-card at end
+    } else {
+        initPot = state.stakePerRound * numPlayers; // ante x players
+    }
+    state.pot = initPot;
+    document.getElementById('table-pot-amount').textContent = Number(state.pot).toLocaleString();
+    updateDiscardArea();
+
+    // Card counts per game
+    let cardCount = 9;  // Ta La
+    if (state.activeGameType === 'poker')   cardCount = 2;  // hole cards only
+    if (state.activeGameType === 'tienlen') cardCount = 13;
+    if (state.activeGameType === 'sam')     cardCount = 10;
+
+    // Phase badge
+    const phaseBadge = document.getElementById('table-phase-badge');
+    if (phaseBadge) phaseBadge.textContent = state.activeGameType === 'poker' ? 'Pre-flop' : 'Dang chia...';
+
+    // Animate opponents' card backs
+    animateOpponentDeal(numPlayers - 1, cardCount);
+
+    try {
+        const res = await apiCall('/api/game/deal', 'POST', { cardCount });
+        state.hand = res.cards;
+        state.deckRemaining = res.remainingInDeck;
+        document.getElementById('deck-remaining-count').textContent = state.deckRemaining;
+
+        // Staggered reveal of player's own cards
+        const handContainer = document.getElementById('player-hand-cards');
+        handContainer.innerHTML = '';
+        for (let i = 0; i < state.hand.length; i++) {
+            await delay(75);
+            audio.playCardSound();
+            const card = state.hand[i];
+            const el = createCardElement(card);
+            el.classList.add('card-deal-anim');
+            handContainer.appendChild(el);
+        }
+
+        const turnEl = document.getElementById('table-turn-indicator');
+
+        if (state.activeGameType === 'tala') {
+            await autoEvaluatePhom();
+            if (phaseBadge) phaseBadge.textContent = 'Danh bai';
+            if (turnEl) turnEl.textContent = 'Luot cua ban: Boc hoac An bai';
+        } else if (state.activeGameType === 'poker') {
+            await autoEvaluatePoker();
+            if (phaseBadge) phaseBadge.textContent = 'Pre-flop';
+            if (turnEl) turnEl.textContent = 'Pre-flop: Check / Cuoc / Fold';
+        } else if (state.activeGameType === 'tienlen') {
+            sortHandTienLen();
+            renderCardsList(state.hand, handContainer);
+            if (phaseBadge) phaseBadge.textContent = 'Danh bai';
+            if (turnEl) turnEl.textContent = 'Chon bai va nhan Danh Bai';
+            document.getElementById('eval-result-text').textContent = 'Da chia 13 la - sap xep: 3<4<...<A<2';
+        } else if (state.activeGameType === 'sam') {
+            sortHandSam();
+            renderCardsList(state.hand, handContainer);
+            if (phaseBadge) phaseBadge.textContent = 'Danh bai';
+            if (turnEl) turnEl.textContent = 'Chon bai va nhan Danh Bai';
+            checkBaoSam();
+        }
+
+        addChatMessage('🎮 He thong', 'Da chia bai! Chuc cac ban choi vui ve.', 'system');
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+// Tá Lả: Automatically isolate Phỏm to the left
+async function autoEvaluatePhom() {
+    const rawValues = state.hand.map(c => c.rawValue);
+    try {
+        const res = await apiCall('/api/game/evaluate-tala', 'POST', { cards: rawValues });
+        state.phoms = res.bestPhoms;
+        state.trashCards = res.trashCards;
+
+        const phomZone = document.getElementById('phom-zone');
+        const phomContainer = document.getElementById('phom-cards-container');
+        const trashBadge = document.getElementById('trash-score-badge');
+        const handTitle = document.getElementById('hand-zone-title');
+        const evalText = document.getElementById('eval-result-text');
+
+        trashBadge.style.display = 'inline-block';
+        trashBadge.textContent = `${res.minTrashScore}đ Rác`;
+
+        if (state.phoms.length > 0) {
+            phomZone.style.display = 'flex';
+            document.getElementById('phom-count-badge').textContent = `${state.phoms.length} Phỏm`;
+            phomContainer.innerHTML = '';
+
+            state.phoms.forEach((phom, pIdx) => {
+                const groupDiv = document.createElement('div');
+                groupDiv.className = 'phom-single-group';
+                groupDiv.title = `Phỏm ${pIdx + 1}`;
+                phom.forEach(card => {
+                    groupDiv.appendChild(createCardElement(card));
+                });
+                phomContainer.appendChild(groupDiv);
+            });
+
+            handTitle.textContent = 'BÀI RÁC (Chưa vào phỏm)';
+            evalText.textContent = `Tự động gom ${state.phoms.length} Phỏm - Rác: ${res.minTrashScore}đ`;
+            renderCardsList(state.trashCards, document.getElementById('player-hand-cards'));
+            audio.playWinSound();
+        } else {
+            phomZone.style.display = 'none';
+            handTitle.textContent = 'BÀI TRÊN TAY (Chưa có phỏm)';
+            evalText.textContent = `Chưa có Phỏm - Tổng rác: ${res.minTrashScore}đ`;
+            renderCardsList(state.hand, document.getElementById('player-hand-cards'));
+        }
+    } catch (e) {
+        renderSimpleHand();
+    }
+}
+
+// Texas Poker: Evaluate 7 cards
+async function autoEvaluatePoker() {
+    const rawValues = state.hand.map(c => c.rawValue);
+    const commCards = document.getElementById('community-cards');
+    commCards.style.display = 'flex';
+    commCards.innerHTML = '';
+
+    // In 7-card poker: 2 hole cards in hand, 5 on board
+    const holeCards = state.hand.slice(0, 2);
+    const boardCards = state.hand.slice(2);
+
+    boardCards.forEach(card => {
+        commCards.appendChild(createCardElement(card));
+    });
+
+    renderCardsList(holeCards, document.getElementById('player-hand-cards'));
+    document.getElementById('phom-zone').style.display = 'none';
+    document.getElementById('hand-zone-title').textContent = 'BÀI TẨY CỦA BẠN (2 Lá)';
+
+    try {
+        const res = await apiCall('/api/game/evaluate-poker', 'POST', { cards: rawValues });
+        document.getElementById('eval-result-text').textContent = `Poker: ${res.handRank}`;
+        showToast(`Tay bài Poker tốt nhất: ${res.handRank}`);
+        audio.playWinSound();
+    } catch (e) { }
+}
+
+function createCardElement(card, isClickable = true) {
+    const suitSymbols = { 0: '♠', 1: '♣', 2: '♦', 3: '♥' };
+    const suitClasses = { 0: 'card-suit-spade', 1: 'card-suit-club', 2: 'card-suit-diamond', 3: 'card-suit-heart' };
+    const rankNames = { 1: 'A', 11: 'J', 12: 'Q', 13: 'K' };
+
+    const rankDisplay = rankNames[card.rank] || card.rank;
+    const suitSymbol = suitSymbols[card.suit];
+    const suitClass = suitClasses[card.suit];
+
+    const cardEl = document.createElement('div');
+    cardEl.className = `playing-card ${suitClass}`;
+    cardEl.dataset.rawValue = card.rawValue;
+
+    if (state.selectedCards.has(card.rawValue)) {
+        cardEl.classList.add('selected');
+    }
+
+    cardEl.innerHTML = `
+        <div class="card-top-left">
+            <span class="card-rank">${rankDisplay}</span>
+            <span class="card-suit-small">${suitSymbol}</span>
+        </div>
+        <div class="card-center-suit">${suitSymbol}</div>
+        <div class="card-top-left" style="transform: rotate(180deg)">
+            <span class="card-rank">${rankDisplay}</span>
+            <span class="card-suit-small">${suitSymbol}</span>
+        </div>
+    `;
+
+    if (isClickable) {
+        cardEl.addEventListener('click', () => {
+            audio.playCardSound();
+            if (state.selectedCards.has(card.rawValue)) {
+                state.selectedCards.delete(card.rawValue);
+                cardEl.classList.remove('selected');
+            } else {
+                state.selectedCards.add(card.rawValue);
+                cardEl.classList.add('selected');
+            }
+        });
+    }
+
+    return cardEl;
+}
+
+function renderCardsList(cards, container) {
+    container.innerHTML = '';
+    cards.forEach(card => {
+        container.appendChild(createCardElement(card));
+    });
+}
+
+function renderSimpleHand() {
+    renderCardsList(state.hand, document.getElementById('player-hand-cards'));
+    document.getElementById('phom-zone').style.display = 'none';
+    document.getElementById('trash-score-badge').style.display = 'none';
+    document.getElementById('hand-zone-title').textContent = 'BÀI TRÊN TAY';
+}
+
+function sortHand() {
+    audio.playCardSound();
+    // Sort logic: Rank 3 is lowest, 2 is highest in Tien Len
+    state.hand.sort((a, b) => {
+        const valA = a.rank === 2 ? 15 : (a.rank === 1 ? 14 : a.rank);
+        const valB = b.rank === 2 ? 15 : (b.rank === 1 ? 14 : b.rank);
+        if (valA !== valB) return valA - valB;
+        return a.suit - b.suit;
+    });
+    renderSimpleHand();
+}
+
+function updateDiscardArea() {
+    const area = document.getElementById('table-discard-cards');
+    area.innerHTML = '';
+    if (state.discardPile.length === 0) {
+        area.innerHTML = '<div class="empty-discard-placeholder">Chưa đánh bài</div>';
+    } else {
+        const lastCard = state.discardPile[state.discardPile.length - 1];
+        area.appendChild(createCardElement(lastCard, false));
+    }
+}
+
+// Gameplay Actions
+async function drawCard() {
+    if (state.deckRemaining <= 0) {
+        showToast('Nọc đã hết bài!', 'error');
+        return;
+    }
+    audio.playCardSound();
+    try {
+        const res = await apiCall('/api/game/deal', 'POST', { cardCount: 1 });
+        const newCard = res.cards[0];
+        state.hand.push(newCard);
+        state.deckRemaining = res.remainingInDeck;
+        document.getElementById('deck-remaining-count').textContent = state.deckRemaining;
+
+        showToast(`Bạn vừa bốc được lá: ${newCard.displayName}`);
+        if (state.activeGameType === 'tala') {
+            await autoEvaluatePhom();
+        } else {
+            renderSimpleHand();
+        }
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+function playSelectedCard() {
+    if (state.selectedCards.size === 0) {
+        showToast('Vui lòng click chọn ít nhất 1 lá bài để đánh!', 'error');
+        return;
+    }
+
+    audio.playCardSound();
+    const playedCards = [];
+    state.hand = state.hand.filter(card => {
+        if (state.selectedCards.has(card.rawValue)) {
+            playedCards.push(card);
+            return false;
+        }
+        return true;
+    });
+
+    state.selectedCards.clear();
+    state.discardPile.push(...playedCards);
+    updateDiscardArea();
+
+    showToast(`Đã đánh: ${playedCards.map(c => c.displayName).join(', ')}`);
+
+    if (state.activeGameType === 'tala') {
+        autoEvaluatePhom();
+    } else {
+        renderSimpleHand();
+    }
+}
+
+function takeCard() {
+    if (state.discardPile.length === 0) {
+        showToast('Cửa trên chưa đánh bài nào để ăn!', 'error');
+        return;
+    }
+    audio.playCardSound();
+    const taken = state.discardPile.pop();
+    state.hand.push(taken);
+    updateDiscardArea();
+    showToast(`Ăn thành công lá ${taken.displayName}! Tự động gom phỏm...`);
+    autoEvaluatePhom();
+}
+
+function showPhomAction() {
+    if (state.phoms.length === 0) {
+        showToast('Bạn chưa có phỏm nào để hạ! Hãy bốc bài hoặc ăn bài.', 'error');
+        return;
+    }
+    audio.playWinSound();
+    showToast(`Hạ thành công ${state.phoms.length} phỏm!`);
+    document.getElementById('table-turn-indicator').textContent = 'Đã hạ phỏm thành công!';
+}
+
+function passTurn() {
+    audio.playCardSound();
+    showToast('Bạn đã bỏ lượt!');
+    document.getElementById('table-turn-indicator').textContent = 'Đã qua vòng, chờ lượt tiếp theo...';
+}
+
+async function betChips(amount = 500) {
+    if (state.balance < amount) {
+        showToast('Số dư chip không đủ để tố!', 'error');
+        return;
+    }
+    audio.playChipSound();
+    try {
+        const res = await apiCall('/api/wallet/transfer', 'POST', { amount: -amount });
+        state.balance = res.newBalance;
+        state.pot += amount;
+        document.getElementById('header-chip-count').textContent = Number(state.balance).toLocaleString();
+        document.getElementById('seat-self-chips').textContent = Number(state.balance).toLocaleString() + ' 🪙';
+        document.getElementById('table-pot-amount').textContent = Number(state.pot).toLocaleString();
+        showToast(`Bạn vừa tố +${Number(amount).toLocaleString()} chip vào Pot!`);
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+function foldCards() {
+    audio.playCardSound();
+    state.hand = [];
+    state.phoms = [];
+    state.trashCards = [];
+    renderSimpleHand();
+    document.getElementById('eval-result-text').textContent = 'Đã úp bài';
+    document.getElementById('table-turn-indicator').textContent = 'Bạn đã úp bài trong ván này';
+    showToast('Bạn đã úp bài (Fold).');
+}
+
+// ==========================================================================
+// IN-GAME CHAT & EMOJI SYSTEM
+// ==========================================================================
+function toggleChatPanel() {
+    const panel = document.getElementById('chat-panel');
+    if (!panel) return;
+    const isVisible = panel.style.display !== 'none';
+    panel.style.display = isVisible ? 'none' : 'flex';
+    if (!isVisible) {
+        document.getElementById('chat-input')?.focus();
+        scrollChatToBottom();
+    }
+}
+
+function scrollChatToBottom() {
+    const list = document.getElementById('chat-messages-list');
+    if (list) list.scrollTop = list.scrollHeight;
+}
+
+function addChatMessage(sender, text, type = 'user') {
+    const list = document.getElementById('chat-messages-list');
+    if (!list) return;
+
+    const div = document.createElement('div');
+    if (type === 'system') {
+        div.className = 'chat-system-msg';
+        div.textContent = text;
+    } else {
+        div.className = `chat-msg ${type === 'self' ? 'chat-msg-self' : 'chat-msg-other'}`;
+        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        div.innerHTML = `<span class="chat-sender">${sender}</span><span class="chat-bubble">${escapeHtml(text)}</span><span class="chat-time">${time}</span>`;
+    }
+    list.appendChild(div);
+    scrollChatToBottom();
+    state.chatMessages.push({ sender, text, type });
+}
+
+function escapeHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function sendChatMessage() {
+    const input = document.getElementById('chat-input');
+    if (!input) return;
+    const text = input.value.trim();
+    if (!text) return;
+    const sender = state.user?.username || 'Bạn';
+    addChatMessage(sender, text, 'self');
+    input.value = '';
+    // Ensure chat is visible
+    document.getElementById('chat-panel').style.display = 'flex';
+}
+
+function sendEmojiReaction(emoji) {
+    const sender = state.user?.username || 'Bạn';
+    addChatMessage(sender, emoji, 'self');
+    showFloatingEmoji(emoji);
+    // Ensure chat panel open
+    document.getElementById('chat-panel').style.display = 'flex';
+    scrollChatToBottom();
+}
+
+function showFloatingEmoji(emoji) {
+    const popup = document.getElementById('emoji-float-popup');
+    if (!popup) return;
+    popup.textContent = emoji;
+    popup.style.display = 'block';
+    popup.classList.add('emoji-animate');
+    setTimeout(() => {
+        popup.classList.remove('emoji-animate');
+        popup.style.display = 'none';
+    }, 1500);
+}
+
+// Event Bindings
+document.addEventListener('DOMContentLoaded', () => {
+    updateAuthUI();
+
+    // Brand logo home click
+    document.getElementById('brand-home-btn')?.addEventListener('click', () => switchScreen('screen-lobby'));
+
+    // Auth modal controls & Tabs
+    document.getElementById('btn-open-auth')?.addEventListener('click', () => {
+        setAuthMode('login');
+        openModal('auth-modal');
+    });
+    document.getElementById('btn-close-auth')?.addEventListener('click', () => closeModal('auth-modal'));
+    document.getElementById('tab-auth-login')?.addEventListener('click', () => setAuthMode('login'));
+    document.getElementById('tab-auth-register')?.addEventListener('click', () => setAuthMode('register'));
+    document.getElementById('form-auth-submit')?.addEventListener('click', executeAuth);
+
+    document.getElementById('btn-logout')?.addEventListener('click', handleLogout);
+    
+    // QR Deposit modal triggers & history
+    document.getElementById('btn-top-up')?.addEventListener('click', openDepositModal);
+    document.getElementById('btn-close-deposit')?.addEventListener('click', () => closeModal('deposit-modal'));
+    document.getElementById('btn-refresh-my-deposits')?.addEventListener('click', loadMyDepositHistory);
+    document.querySelectorAll('.denom-btn').forEach(btn => {
+        btn.addEventListener('click', function() { selectDepositDenom(this); });
+    });
+    document.getElementById('input-custom-deposit')?.addEventListener('input', function() {
+        onCustomDepositInput(this.value);
+    });
+    document.getElementById('btn-confirm-deposit')?.addEventListener('click', confirmDepositPayment);
+    document.getElementById('btn-copy-syntax')?.addEventListener('click', copyTransferSyntax);
+
+    // Admin portal modal triggers & Sidebar Nav
+    document.getElementById('btn-admin-portal')?.addEventListener('click', openAdminPortal);
+    document.getElementById('btn-close-admin')?.addEventListener('click', () => closeModal('admin-modal'));
+    document.getElementById('btn-admin-refresh')?.addEventListener('click', () => {
+        const activePanel = document.querySelector('.admin-panel.active')?.id || 'admin-view-overview';
+        switchAdminTab(activePanel);
+    });
+
+    // Sidebar nav items (new admin layout)
+    document.querySelectorAll('.admin-nav-item').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.admin-nav-item').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            switchAdminTab(btn.dataset.tab);
+        });
+    });
+
+    // Legacy tab-btn support (if any)
+    document.querySelectorAll('.admin-tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => switchAdminTab(btn.dataset.tab));
+    });
+
+    document.querySelectorAll('.filter-pill-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            // Only reset siblings in same parent group
+            const parent = btn.closest('.filter-pill-group, .admin-toolbar, [data-filter-group]');
+            const siblings = parent ? parent.querySelectorAll('.filter-pill-btn') : document.querySelectorAll('.filter-pill-btn');
+            siblings.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            if (btn.dataset.filter !== undefined) {
+                currentDepositFilter = btn.dataset.filter;
+                loadAdminDeposits();
+            }
+        });
+    });
+
+    document.getElementById('admin-search-users')?.addEventListener('input', () => {
+        loadAdminUsers();
+    });
+
+    // Ban modal events
+    document.getElementById('btn-close-ban')?.addEventListener('click', () => closeModal('ban-user-modal'));
+    document.getElementById('btn-cancel-ban')?.addEventListener('click', () => closeModal('ban-user-modal'));
+    document.getElementById('btn-confirm-ban')?.addEventListener('click', executeConfirmBan);
+
+    // Periodic check for pending deposits if logged in
+    setInterval(() => {
+        if (state.token && (state.user?.role === 'admin' || state.user?.username?.toLowerCase() === 'admin')) {
+            checkAdminPendingDepositsCount();
+        }
+    }, 10000);
+
+    // Input realtime clear errors
+    ['input-username', 'input-password', 'input-repassword'].forEach(id => {
+        document.getElementById(id)?.addEventListener('input', () => {
+            document.getElementById(id).classList.remove('input-error');
+        });
+    });
+
+    // Join room input
+    document.getElementById('btn-join-room-submit')?.addEventListener('click', () => {
+        const code = document.getElementById('input-join-code').value.trim();
+        joinRoomByCode(code);
+    });
+
+    // Stake Cards in Lobby - each card has data-game, data-stake, data-min-buyin
+    document.querySelectorAll('.stake-play-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const card = e.target.closest('[data-game]');
+            if (!card) return;
+            const game = card.dataset.game;
+            const stake = parseInt(card.dataset.stake, 10);
+            const minBuyin = parseInt(card.dataset.minBuyin, 10);
+            enterGame(game, stake, minBuyin);
+        });
+    });
+
+    // Brand logo -> go back to lobby
+    document.getElementById('brand-home-btn')?.addEventListener('click', () => {
+        if (state.roomCountdownInterval) clearInterval(state.roomCountdownInterval);
+        if (state.playerPollInterval) clearInterval(state.playerPollInterval);
+        switchScreen('screen-lobby');
+    });
+
+    // Back to lobby button
+    document.getElementById('btn-back-to-lobby')?.addEventListener('click', () => {
+        if (state.roomCountdownInterval) clearInterval(state.roomCountdownInterval);
+        if (state.playerPollInterval) clearInterval(state.playerPollInterval);
+        switchScreen('screen-lobby');
+    });
+
+    // Deck click to draw
+    document.getElementById('deck-pile')?.addEventListener('click', drawCard);
+
+    // Table Action Buttons - Ta La
+    document.getElementById('btn-draw-card')?.addEventListener('click', drawCard);
+    document.getElementById('btn-play-card')?.addEventListener('click', playSelectedCard);
+    document.getElementById('btn-take-card')?.addEventListener('click', takeCard);
+    document.getElementById('btn-show-phom')?.addEventListener('click', showPhomAction);
+    document.getElementById('btn-sort-cards-tala')?.addEventListener('click', sortHand);
+    document.getElementById('btn-deal-hand')?.addEventListener('click', dealNewRound);
+    // Poker buttons
+    document.getElementById('btn-poker-check')?.addEventListener('click', () => showToast('Ban da Check!'));
+    document.getElementById('btn-poker-call')?.addEventListener('click', () => showToast('Ban da Theo (Call)!'));
+    document.getElementById('btn-poker-raise')?.addEventListener('click', () => betChips(state.stakePerRound));
+    document.getElementById('btn-poker-allin')?.addEventListener('click', () => showToast('ALL-IN!'));
+    document.getElementById('btn-poker-fold')?.addEventListener('click', foldCards);
+    document.getElementById('btn-deal-poker')?.addEventListener('click', dealNewRound);
+    // Tien Len buttons
+    document.getElementById('btn-tl-play')?.addEventListener('click', playSelectedCard);
+    document.getElementById('btn-tl-pass')?.addEventListener('click', passTurn);
+    document.getElementById('btn-tl-sort')?.addEventListener('click', sortHand);
+    document.getElementById('btn-deal-tienlen')?.addEventListener('click', dealNewRound);
+    // Sam Loc buttons
+    document.getElementById('btn-sam-play')?.addEventListener('click', playSelectedCard);
+    document.getElementById('btn-sam-pass')?.addEventListener('click', passTurn);
+    document.getElementById('btn-sam-bao')?.addEventListener('click', checkBaoSam);
+    document.getElementById('btn-deal-sam')?.addEventListener('click', dealNewRound);
+
+    // Waiting overlay - Copy Room Code
+    document.getElementById('btn-copy-room-code')?.addEventListener('click', () => {
+        if (state.currentRoom?.code) {
+            navigator.clipboard.writeText(state.currentRoom.code);
+            showToast(`Đã sao chép mã phòng: ${state.currentRoom.code}`);
+        }
+    });
+
+    // Chat panel toggle
+    document.getElementById('btn-toggle-chat')?.addEventListener('click', toggleChatPanel);
+    document.getElementById('btn-close-chat')?.addEventListener('click', () => {
+        document.getElementById('chat-panel').style.display = 'none';
+    });
+
+    // Chat send button and Enter key
+    document.getElementById('btn-send-chat')?.addEventListener('click', sendChatMessage);
+    document.getElementById('chat-input')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            sendChatMessage();
+        }
+    });
+
+    // Emoji quick reaction buttons
+    document.querySelectorAll('.emoji-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            sendEmojiReaction(btn.dataset.emoji);
+        });
+    });
+
+    // Lucky Spin modal triggers & actions
+    document.getElementById('btn-lucky-spin')?.addEventListener('click', openLuckySpinModal);
+    document.getElementById('btn-close-spin')?.addEventListener('click', () => closeModal('lucky-spin-modal'));
+    document.getElementById('btn-do-spin')?.addEventListener('click', handleDoSpin);
+    document.getElementById('spin-canvas')?.addEventListener('click', handleDoSpin);
+
+    // Global modal close handlers
+    // 1. Any .modal-close-btn automatically closes its parent modal
+    document.querySelectorAll('.modal-close-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const modal = btn.closest('.modal-overlay');
+            if (modal) modal.classList.remove('active');
+        });
+    });
+
+    // 2. Clicking anywhere on the dark backdrop of any modal closes it
+    document.querySelectorAll('.modal-overlay').forEach(overlay => {
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) {
+                overlay.classList.remove('active');
+                if (overlay.id === 'custom-dialog-modal') {
+                    closeCustomDialog(null);
+                }
+            }
+        });
+    });
+
+    // 3. Pressing ESC key closes any open modal
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active'));
+            closeCustomDialog(null);
+        }
+    });
+
+    // Custom dialog buttons
+    document.getElementById('custom-dialog-confirm-btn')?.addEventListener('click', () => {
+        const inputGroup = document.getElementById('custom-dialog-input-group');
+        const inputEl = document.getElementById('custom-dialog-input');
+        const val = (inputGroup && inputGroup.style.display !== 'none') ? inputEl.value : true;
+        closeCustomDialog(val);
+    });
+
+    document.getElementById('custom-dialog-cancel-btn')?.addEventListener('click', () => {
+        const inputGroup = document.getElementById('custom-dialog-input-group');
+        const val = (inputGroup && inputGroup.style.display !== 'none') ? null : false;
+        closeCustomDialog(val);
+    });
+
+    document.getElementById('btn-close-dialog')?.addEventListener('click', () => {
+        const inputGroup = document.getElementById('custom-dialog-input-group');
+        const val = (inputGroup && inputGroup.style.display !== 'none') ? null : false;
+        closeCustomDialog(val);
+    });
+
+    document.getElementById('custom-dialog-input')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            document.getElementById('custom-dialog-confirm-btn')?.click();
+        }
+    });
+
+    // Allow manual player count override for testing (Ctrl+Shift+P)
+    document.addEventListener('keydown', (e) => {
+        if (e.ctrlKey && e.shiftKey && e.key === 'P') {
+            state.playerCount = 2;
+            updatePlayerCountUI(2);
+            hideWaitingOverlay();
+            showToast('🔧 Debug: Số người chơi đặt thành 2');
+        }
+    });
+});
+
+// ==========================================================================
+// VÒNG QUAY MAY MẮN (LUCKY SPIN - TỐI ĐA 3 LƯỢT / NGÀY / TÀI KHOẢN)
+// ==========================================================================
+
+const spinWheel = {
+    canvas: null,
+    ctx: null,
+    currentAngle: 0,
+    isSpinning: false,
+    prizes: [
+        { id: 1, label: '50.000 🪙', short: '50K 👑', value: 50000, color: '#dc2626', textColor: '#ffffff', weight: 2 },
+        { id: 2, label: '10.000 🪙', short: '10K ⭐', value: 10000, color: '#f59e0b', textColor: '#0f172a', weight: 8 },
+        { id: 3, label: '500 🪙',    short: '500 🍀', value: 500,   color: '#2563eb', textColor: '#ffffff', weight: 25 },
+        { id: 4, label: '5.000 🪙',  short: '5K 💎',  value: 5000,  color: '#7c3aed', textColor: '#ffffff', weight: 12 },
+        { id: 5, label: 'Mất Lượt 😅', short: '0 🪙',  value: 0,     color: '#334155', textColor: '#94a3b8', weight: 15 },
+        { id: 6, label: '2.000 🪙',  short: '2K 🎁',  value: 2000,  color: '#059669', textColor: '#ffffff', weight: 18 },
+        { id: 7, label: '100 🪙',    short: '100 🪙', value: 100,   color: '#0284c7', textColor: '#ffffff', weight: 10 },
+        { id: 8, label: '1.000 🪙',  short: '1K ✨',  value: 1000,  color: '#db2777', textColor: '#ffffff', weight: 10 }
+    ]
+};
+
+function getTodaySpinDateKey() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+function getUserSpinStorageKey() {
+    const username = state.user?.username || 'khach';
+    return `spins_${username}_${getTodaySpinDateKey()}`;
+}
+
+function getTodaySpins() {
+    try {
+        const raw = localStorage.getItem(getUserSpinStorageKey());
+        return raw ? JSON.parse(raw) : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function saveUserSpinRecord(prize) {
+    const list = getTodaySpins();
+    const username = state.user?.username || 'Khách';
+    const record = {
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        prize: prize.label,
+        value: prize.value,
+        username: username,
+        date: getTodaySpinDateKey()
+    };
+    list.unshift(record);
+    localStorage.setItem(getUserSpinStorageKey(), JSON.stringify(list));
+
+    // Also persist into global admin spin logs
+    try {
+        const globalLogs = JSON.parse(localStorage.getItem('admin_spin_logs') || '[]');
+        globalLogs.unshift({
+            ...record,
+            id: 'SPIN-' + Date.now()
+        });
+        // keep up to 100 entries
+        if (globalLogs.length > 100) globalLogs.length = 100;
+        localStorage.setItem('admin_spin_logs', JSON.stringify(globalLogs));
+    } catch (e) { }
+}
+
+function loadSavedSpinConfig() {
+    try {
+        const custom = localStorage.getItem('spin_prize_config');
+        if (custom) {
+            const cfg = JSON.parse(custom);
+            if (cfg.jackpot) {
+                spinWheel.prizes[0].value = cfg.jackpot;
+                spinWheel.prizes[0].label = Number(cfg.jackpot).toLocaleString() + ' 🪙';
+                spinWheel.prizes[0].short = (cfg.jackpot >= 1000 ? Math.round(cfg.jackpot / 1000) + 'K 👑' : cfg.jackpot + ' 👑');
+            }
+            if (cfg.first) {
+                spinWheel.prizes[1].value = cfg.first;
+                spinWheel.prizes[1].label = Number(cfg.first).toLocaleString() + ' 🪙';
+                spinWheel.prizes[1].short = (cfg.first >= 1000 ? Math.round(cfg.first / 1000) + 'K ⭐' : cfg.first + ' ⭐');
+            }
+            if (cfg.second) {
+                spinWheel.prizes[3].value = cfg.second;
+                spinWheel.prizes[3].label = Number(cfg.second).toLocaleString() + ' 🪙';
+                spinWheel.prizes[3].short = (cfg.second >= 1000 ? Math.round(cfg.second / 1000) + 'K 💎' : cfg.second + ' 💎');
+            }
+            if (cfg.third) {
+                spinWheel.prizes[5].value = cfg.third;
+                spinWheel.prizes[5].label = Number(cfg.third).toLocaleString() + ' 🪙';
+                spinWheel.prizes[5].short = (cfg.third >= 1000 ? Math.round(cfg.third / 1000) + 'K 🎁' : cfg.third + ' 🎁');
+            }
+            if (cfg.cons) {
+                spinWheel.prizes[2].value = cfg.cons;
+                spinWheel.prizes[2].label = Number(cfg.cons).toLocaleString() + ' 🪙';
+                spinWheel.prizes[2].short = (cfg.cons >= 1000 ? Math.round(cfg.cons / 1000) + 'K 🍀' : cfg.cons + ' 🍀');
+            }
+        }
+    } catch (e) { }
+}
+
+function openLuckySpinModal() {
+    loadSavedSpinConfig();
+    openModal('lucky-spin-modal');
+    updateSpinTurnsUI();
+    // Immediate and delayed render to guarantee canvas is drawn as modal becomes visible
+    initSpinCanvas();
+    drawSpinWheel();
+    setTimeout(() => {
+        initSpinCanvas();
+        drawSpinWheel();
+    }, 30);
+}
+
+function updateSpinTurnsUI() {
+    const spins = getTodaySpins();
+    const used = spins.length;
+    const remaining = Math.max(0, 3 - used);
+
+    const countEl = document.getElementById('spin-turns-count');
+    if (countEl) countEl.textContent = remaining;
+
+    const btnSpin = document.getElementById('btn-do-spin');
+    if (btnSpin) {
+        if (remaining <= 0) {
+            btnSpin.disabled = true;
+            btnSpin.textContent = '⛔ ĐÃ HẾT 3 LƯỢT HÔM NAY';
+            btnSpin.style.opacity = '0.6';
+            btnSpin.style.cursor = 'not-allowed';
+        } else {
+            btnSpin.disabled = false;
+            btnSpin.textContent = `🚀 QUAY NGAY! (${remaining}/3 lượt)`;
+            btnSpin.style.opacity = '1';
+            btnSpin.style.cursor = 'pointer';
+        }
+    }
+
+    // Render local history
+    const historyList = document.getElementById('spin-history-list');
+    if (historyList) {
+        if (spins.length === 0) {
+            historyList.innerHTML = '<div style="font-size:0.75rem;color:#64748b;text-align:center;padding:4px;">Chưa có lượt quay nào hôm nay</div>';
+        } else {
+            historyList.innerHTML = spins.map(s => `
+                <div class="spin-history-item">
+                    <span>${s.time}</span>
+                    <span class="${s.value > 0 ? 'prize-win' : ''}">${s.value > 0 ? '+' + Number(s.value).toLocaleString() + ' 🪙' : 'Mất lượt'}</span>
+                </div>
+            `).join('');
+        }
+    }
+}
+
+function initSpinCanvas() {
+    spinWheel.canvas = document.getElementById('spin-canvas');
+    if (spinWheel.canvas) {
+        spinWheel.ctx = spinWheel.canvas.getContext('2d');
+    }
+}
+
+function drawSpinWheel() {
+    initSpinCanvas();
+    const canvas = spinWheel.canvas;
+    if (!canvas) return;
+    const ctx = spinWheel.ctx;
+    if (!ctx) return;
+    const width = canvas.width || 340;
+    const height = canvas.height || 340;
+    const cx = width / 2;
+    const cy = height / 2;
+    const radius = cx - 12;
+
+    ctx.clearRect(0, 0, width, height);
+
+    const numSlices = spinWheel.prizes.length;
+    const sliceAngle = (2 * Math.PI) / numSlices;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(spinWheel.currentAngle);
+
+    // Draw Slices
+    for (let i = 0; i < numSlices; i++) {
+        const prize = spinWheel.prizes[i];
+        const start = i * sliceAngle;
+        const end = start + sliceAngle;
+
+        // Wedge
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.arc(0, 0, radius, start, end);
+        ctx.closePath();
+        ctx.fillStyle = prize.color;
+        ctx.fill();
+
+        // Edge separator
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Label on slice
+        ctx.save();
+        ctx.rotate(start + sliceAngle / 2);
+        ctx.textAlign = 'right';
+        ctx.fillStyle = prize.textColor;
+        ctx.font = 'bold 13px Outfit, sans-serif';
+        ctx.shadowColor = 'rgba(0,0,0,0.8)';
+        ctx.shadowBlur = 4;
+        ctx.fillText(prize.short, radius - 20, 5);
+        ctx.restore();
+    }
+
+    // Outer ring with decorative lights
+    ctx.beginPath();
+    ctx.arc(0, 0, radius, 0, 2 * Math.PI);
+    ctx.strokeStyle = '#f59e0b';
+    ctx.lineWidth = 6;
+    ctx.stroke();
+
+    const dotCount = 24;
+    for (let d = 0; d < dotCount; d++) {
+        const dotAngle = (d / dotCount) * 2 * Math.PI;
+        const dx = (radius - 3) * Math.cos(dotAngle);
+        const dy = (radius - 3) * Math.sin(dotAngle);
+        ctx.beginPath();
+        ctx.arc(dx, dy, 3, 0, 2 * Math.PI);
+        ctx.fillStyle = d % 2 === 0 ? '#ffffff' : '#fbbf24';
+        ctx.fill();
+    }
+
+    // Center Hub
+    const hubGrad = ctx.createRadialGradient(0, 0, 5, 0, 0, 32);
+    hubGrad.addColorStop(0, '#fef08a');
+    hubGrad.addColorStop(0.6, '#f59e0b');
+    hubGrad.addColorStop(1, '#b45309');
+
+    ctx.beginPath();
+    ctx.arc(0, 0, 30, 0, 2 * Math.PI);
+    ctx.fillStyle = hubGrad;
+    ctx.shadowColor = 'rgba(0,0,0,0.6)';
+    ctx.shadowBlur = 8;
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.fillStyle = '#0f172a';
+    ctx.font = '900 12px Outfit, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowBlur = 0;
+    ctx.fillText('QUAY', 0, 0);
+
+    ctx.restore();
+}
+
+function handleDoSpin() {
+    if (spinWheel.isSpinning) return;
+
+    const spins = getTodaySpins();
+    if (spins.length >= 3) {
+        showToast('Bạn đã quay đủ 3 lượt tối đa hôm nay! Vui lòng quay lại vào ngày mai.', 'error');
+        return;
+    }
+
+    spinWheel.isSpinning = true;
+    const btnSpin = document.getElementById('btn-do-spin');
+    if (btnSpin) {
+        btnSpin.disabled = true;
+        btnSpin.textContent = '⏳ Đang quay...';
+    }
+
+    // Hide previous prize display
+    const prizeDisplay = document.getElementById('spin-prize-display');
+    if (prizeDisplay) prizeDisplay.style.display = 'none';
+
+    // Pick target prize based on weighted probability
+    const prizes = spinWheel.prizes;
+    const totalWeight = prizes.reduce((sum, p) => sum + (p.weight || 10), 0);
+    let rand = Math.random() * totalWeight;
+    let targetIndex = 0;
+    for (let i = 0; i < prizes.length; i++) {
+        rand -= (prizes[i].weight || 10);
+        if (rand <= 0) {
+            targetIndex = i;
+            break;
+        }
+    }
+    const targetPrize = prizes[targetIndex];
+
+    // Pointer is at the top (-PI/2)
+    const numSlices = prizes.length;
+    const sliceAngle = (2 * Math.PI) / numSlices;
+    
+    // Sector i center angle is (i + 0.5) * sliceAngle
+    // When wheel rotates by currentAngle, angle at top (-PI/2) maps to wheel angle:
+    // (-PI/2 - finalAngle) mod 2PI = (targetIndex + 0.5) * sliceAngle
+    const fullSpins = 6 + Math.floor(Math.random() * 3); // 6 to 8 full spins
+    const jitter = (Math.random() - 0.5) * (sliceAngle * 0.6); // slight offset inside slice
+    const targetSectorCenter = (targetIndex + 0.5) * sliceAngle + jitter;
+    
+    // Calculate final rotation angle
+    const targetMod = (-(Math.PI / 2) - targetSectorCenter) % (2 * Math.PI);
+    const normalizedTargetMod = targetMod < 0 ? targetMod + 2 * Math.PI : targetMod;
+    
+    const startAngle = spinWheel.currentAngle % (2 * Math.PI);
+    let angleDiff = normalizedTargetMod - startAngle;
+    if (angleDiff < 0) angleDiff += 2 * Math.PI;
+
+    const totalAngleToRotate = fullSpins * 2 * Math.PI + angleDiff;
+    const duration = 4500; // 4.5 seconds
+    const startTime = performance.now();
+    const initialAngle = spinWheel.currentAngle;
+
+    let lastTickSlice = -1;
+
+    function animateSpin(now) {
+        const elapsed = now - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+
+        // Quintic ease-out curve for dramatic casino slowdown
+        const easeOut = 1 - Math.pow(1 - progress, 4);
+        spinWheel.currentAngle = initialAngle + totalAngleToRotate * easeOut;
+
+        // Sound tick when passing slices
+        const currentSlice = Math.floor(((-Math.PI / 2 - (spinWheel.currentAngle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) / sliceAngle);
+        if (currentSlice !== lastTickSlice) {
+            lastTickSlice = currentSlice;
+            soundEffects.playCardClick();
+        }
+
+        drawSpinWheel();
+
+        if (progress < 1) {
+            requestAnimationFrame(animateSpin);
+        } else {
+            // Spin completed!
+            spinWheel.isSpinning = false;
+            spinWheel.currentAngle = initialAngle + totalAngleToRotate;
+            drawSpinWheel();
+
+            // Save record
+            saveUserSpinRecord(targetPrize);
+            updateSpinTurnsUI();
+
+            // Show prize display
+            if (prizeDisplay) {
+                prizeDisplay.style.display = 'block';
+                const prizeText = document.getElementById('spin-prize-text');
+                if (prizeText) {
+                    if (targetPrize.value > 0) {
+                        prizeText.textContent = `+${Number(targetPrize.value).toLocaleString()} 🪙`;
+                        prizeText.style.color = '#fbbf24';
+                    } else {
+                        prizeText.textContent = 'Mất Lượt 😅 Chúc bạn may mắn lần sau!';
+                        prizeText.style.color = '#94a3b8';
+                    }
+                }
+            }
+
+            // Award chips if won
+            if (targetPrize.value > 0) {
+                soundEffects.playWinSound();
+                showToast(`🎉 Chúc mừng! Bạn trúng ${Number(targetPrize.value).toLocaleString()} Chip từ Vòng Quay May Mắn!`, 'success');
+                
+                // Award via API or local wallet state
+                if (state.token) {
+                    apiCall('/api/wallet/transfer', 'POST', { amount: targetPrize.value })
+                        .then(res => {
+                            if (res.newBalance !== undefined) {
+                                if (state.user && state.user.wallet) state.user.wallet.balance = res.newBalance;
+                                updateHeaderUserInfo();
+                            }
+                        })
+                        .catch(() => {
+                            // Fallback if backend transfer is mocked
+                            if (state.user && state.user.wallet) {
+                                state.user.wallet.balance = (state.user.wallet.balance || 0) + targetPrize.value;
+                                updateHeaderUserInfo();
+                            }
+                        });
+                } else if (state.user) {
+                    if (!state.user.wallet) state.user.wallet = { balance: 0 };
+                    state.user.wallet.balance += targetPrize.value;
+                    updateHeaderUserInfo();
+                }
+            } else {
+                soundEffects.playLossSound();
+            }
+        }
+    }
+
+    requestAnimationFrame(animateSpin);
+}
+
+// ==========================================================================
+// ADMIN SPIN MANAGEMENT FUNCTIONS
+// ==========================================================================
+
+function loadAdminSpinStats() {
+    // Load config into inputs
+    try {
+        const custom = localStorage.getItem('spin_prize_config');
+        if (custom) {
+            const cfg = JSON.parse(custom);
+            if (cfg.jackpot) document.getElementById('prize-jackpot').value = cfg.jackpot;
+            if (cfg.first) document.getElementById('prize-1st').value = cfg.first;
+            if (cfg.second) document.getElementById('prize-2nd').value = cfg.second;
+            if (cfg.third) document.getElementById('prize-3rd').value = cfg.third;
+            if (cfg.cons) document.getElementById('prize-cons').value = cfg.cons;
+        }
+    } catch (e) { }
+
+    // Load logs
+    try {
+        const logs = JSON.parse(localStorage.getItem('admin_spin_logs') || '[]');
+        const today = getTodaySpinDateKey();
+        const todayLogs = logs.filter(l => l.date === today);
+
+        const totalSpins = todayLogs.length;
+        const totalChips = todayLogs.reduce((acc, l) => acc + (l.value || 0), 0);
+        const uniqueUsers = new Set(todayLogs.map(l => l.username)).size;
+
+        document.getElementById('spin-stat-total').textContent = totalSpins;
+        document.getElementById('spin-stat-chips').textContent = Number(totalChips).toLocaleString() + ' 🪙';
+        document.getElementById('spin-stat-users').textContent = uniqueUsers;
+
+        const historyEl = document.getElementById('admin-spin-history');
+        if (historyEl) {
+            if (logs.length === 0) {
+                historyEl.innerHTML = '<div style="font-size:0.75rem;color:#64748b;text-align:center;padding:8px;">Chưa có dữ liệu quay nào</div>';
+            } else {
+                historyEl.innerHTML = logs.slice(0, 15).map(l => `
+                    <div class="spin-history-item">
+                        <span><strong>${escapeHtml(l.username || 'Khách')}</strong> (${l.time || ''})</span>
+                        <span class="${l.value > 0 ? 'prize-win' : ''}">${l.value > 0 ? '+' + Number(l.value).toLocaleString() + ' 🪙' : '0 🪙'}</span>
+                    </div>
+                `).join('');
+            }
+        }
+    } catch (e) { }
+}
+
+function adminSaveSpinConfig() {
+    const jackpot = parseInt(document.getElementById('prize-jackpot')?.value) || 50000;
+    const first = parseInt(document.getElementById('prize-1st')?.value) || 10000;
+    const second = parseInt(document.getElementById('prize-2nd')?.value) || 5000;
+    const third = parseInt(document.getElementById('prize-3rd')?.value) || 2000;
+    const cons = parseInt(document.getElementById('prize-cons')?.value) || 500;
+
+    const config = { jackpot, first, second, third, cons };
+    localStorage.setItem('spin_prize_config', JSON.stringify(config));
+
+    loadSavedSpinConfig();
+    drawSpinWheel();
+    showToast('✔ Đã lưu cài đặt giải thưởng vòng quay may mắn!', 'success');
+}

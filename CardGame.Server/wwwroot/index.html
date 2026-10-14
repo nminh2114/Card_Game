@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Card Game Royale – Tá Lả, Poker, Tiến Lên, Sâm Lốc</title>
+<meta name="description" content="Game bài trực tuyến cao cấp: Tá Lả Phỏm, Texas Hold'em Poker, Tiến Lên Miền Nam, Sâm Lốc. Nhiều mức cược, chip thực.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ===== HEADER ===== -->
+<header class="app-header">
+  <div class="logo-brand" id="brand-home-btn" title="Về Sảnh Chính">
+    <span class="logo-icon">&#9824;</span>
+    <span>CARD GAME ROYALE</span>
+  </div>
+  <div class="user-status-bar">
+    <div class="chip-counter">
+      <span class="chip-icon">🪙</span>
+      <span id="header-chip-count">0</span>
+      <span class="chip-unit">CHIP</span>
+    </div>
+    <button id="btn-lucky-spin" class="btn btn-lucky" title="Vòng Quay May Mắn">🎰 May Mắn</button>
+    <button id="btn-top-up" class="btn btn-secondary">+ Nạp Chip</button>
+    <div id="auth-actions">
+      <button id="btn-open-auth" class="btn btn-primary">Đăng Nhập / Đăng Ký</button>
+    </div>
+    <div id="user-profile-bar" style="display:none;align-items:center;gap:0.75rem;">
+      <button id="btn-admin-portal" class="btn btn-danger admin-badge-header" style="display:none;position:relative;">
+        👑 Quản Trị
+        <span id="header-admin-pending-badge" class="header-notification-pill" style="display:none;">0</span>
+      </button>
+      <div class="user-avatar-mini" id="header-avatar">👤</div>
+      <span id="header-username" style="font-weight:700;color:#fbbf24;"></span>
+      <button id="btn-logout" class="btn btn-secondary" style="padding:0.35rem 0.75rem;font-size:0.8rem;">Đăng Xuất</button>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+
+<!-- ===== SCREEN: LOBBY ===== -->
+<section id="screen-lobby" class="screen active">
+
+  <div class="hero-banner">
+    <div class="hero-text">
+      <h1>Sảnh Trò Chơi Thượng Lưu</h1>
+      <p>Chọn môn bài và mức cược phù hợp. Chip thực – Đối thủ thật – Luật chuẩn.</p>
+    </div>
+    <div class="hero-actions">
+      <div class="room-code-input-group">
+        <input type="text" id="input-join-code" class="room-code-input" placeholder="Mã phòng 6 số..." maxlength="6">
+        <button id="btn-join-room-submit" class="btn btn-primary" style="border-radius:0;">Vào Bàn</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TÁ LẢ -->
+  <div class="game-section">
+    <div class="game-section-header">
+      <div class="game-section-icon">🃏</div>
+      <div>
+        <h2 class="game-section-title">Tá Lả (Phỏm)</h2>
+      </div>
+    </div>
+    <div class="stakes-grid">
+      <div class="stake-card" data-game="tala" data-stake="100" data-min-buyin="1000">
+        <div class="stake-level">⚪ Mới Chơi</div>
+        <div class="stake-amount">🪙 100 / ván</div>
+        <div class="stake-buyin">Vào tối thiểu 1,000 🪙</div>
+        <div class="stake-players"><span class="dot-live"></span> Hàng chờ</div>
+        <button class="btn btn-primary stake-play-btn">Chơi Ngay →</button>
+      </div>
+      <div class="stake-card" data-game="tala" data-stake="200" data-min-buyin="2000">
+        <div class="stake-level">🟢 Tập Sự</div>
+        <div class="stake-amount">🪙 200 / ván</div>
+        <div class="stake-buyin">Vào tối thiểu 2,000 🪙</div>
+        <div class="stake-players"><span class="dot-live"></span> Hàng chờ</div>
+        <button class="btn btn-primary stake-play-btn">Chơi Ngay →</button>
+      </div>
+      <div class="stake-card" data-game="tala" data-stake="500" data-min-buyin="5000">
+        <div class="stake-level">🟡 Phổ Thông</div>
+        <div class="stake-amount">🪙 500 / ván</div>
+        <div class="stake-buyin">Vào tối thiểu 5,000 🪙</div>
+        <div class="stake-players"><span class="dot-live"></span> Hàng chờ</div>
+        <button class="btn btn-primary stake-play-btn">Chơi Ngay →</button>
+      </div>
+      <div class="stake-card stake-featured" data-game="tala" data-stake="2000" data-min-buyin="20000">
+        <div class="stake-badge-hot">HOT</div>
+        <div class="stake-level">🔵 Trung Cấp</div>
+        <div class="stake-amount">🪙 2,000 / ván</div>
+        <div class="stake-buyin">Vào tối thiểu 20,000 🪙</div>
+        <div class="stake-players"><span class="dot-live"></span> Hàng chờ</div>
+        <button class="btn btn-primary stake-play-btn">Chơi Ngay →</button>
+      </div>
+      <div class="stake-card" data-game="tala" data-stake="5000" data-min-buyin="50000">
+        <div class="stake-level">🔴 Cao Thủ</div>
+        <div class="stake-amount">🪙 5,000 / ván</div>
+        <div class="stake-buyin">Vào tối thiểu 50,000 🪙</div>
+        <div class="stake-players"><span class="dot-live"></span> Hàng chờ</div>
+        <button class="btn btn-primary stake-play-btn">Chơi Ngay →</button>
+      </div>
+      <div class="stake-card stake-vip" data-game="tala" data-stake="20000" data-min-buyin="200000">
+        <div class="stake-level">💎 VIP</div>
+        <div class="stake-amount">🪙 20,000 / ván</div>
+        <div class="stake-buyin">Vào tối thiểu 200,000 🪙</div>
+        <div class="stake-players"><span class="dot-live"></span> Hàng chờ</div>
+        <button class="btn btn-primary stake-play-btn">Chơi Ngay →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- POKER -->
+  <div class="game-section">
+    <div class="game-section-header">
+      <div class="game-section-icon">👑</div>
+      <div>
+        <h2 class="game-section-title">Texas Hold'em Poker</h2>
+      </div>
+    </div>
+    <div class="stakes-grid">
+      <div class="stake-card" data-game="poker" data-stake="100" data-min-buyin="1000">
+        <div class="stake-level">⚪ Mới Chơi</div>
+        <div class="stake-amount">🪙 Blind 50/100</div>
+        <div class="stake-buyin">Buy-in tối thiểu 1,000 🪙</div>
+        <div class="stake-players"><span class="dot-live"></span> Hàng chờ</div>
+        <button class="btn btn-primary stake-play-btn">Chơi Ngay →</button>
+      </div>
+      <div class="stake-card" data-game="poker" data-stake="200" data-min-buyin="2000">
+        <div class="stake-level">🟢 Tập Sự</div>
+        <div class="stake-amount">🪙 Blind 100/200</div>
+        <div class="stake-buyin">Buy-in tối thiểu 2,000 🪙</div>
+        <div class="stake-players"><span class="dot-live"></span> Hàng chờ</div>
+        <button class="btn btn-primary stake-play-btn">Chơi Ngay →</button>
+      </div>
+      <div class="stake-card" data-game="poker" data-stake="1000" data-min-buyin="10000">
+        <div class="stake-level">🟡 Phổ Thông</div>
+        <div class="stake-amount">🪙 Blind 500/1,000</div>
+        <div class="stake-buyin">Buy-in tối thiểu 10,000 🪙</div>
+        <div class="stake-players"><span class="dot-live"></span> Hàng chờ</div>
+        <button class="btn btn-primary stake-play-btn">Chơi Ngay →</button>
+      </div>
+      <div class="stake-card stake-featured" data-game="poker" data-stake="5000" data-min-buyin="50000">
+        <div class="stake-badge-hot">HOT</div>
+        <div class="stake-level">🔵 Trung Cấp</div>
+        <div class="stake-amount">🪙 Blind 2,500/5,000</div>
+        <div class="stake-buyin">Buy-in tối thiểu 50,000 🪙</div>
+        <div class="stake-players"><span class="dot-live"></span> Hàng chờ</div>
+        <button class="btn btn-primary stake-play-btn">Chơi Ngay →</button>
+      </div>
+      <div class="stake-card" data-game="poker" data-stake="20000" data-min-buyin="200000">
+        <div class="stake-level">🔴 Cao Thủ</div>
+        <div class="stake-amount">🪙 Blind 10k/20k</div>
+        <div class="stake-buyin">Buy-in tối thiểu 200,000 🪙</div>
+        <div class="stake-players"><span class="dot-live"></span> Hàng chờ</div>
+        <button class="btn btn-primary stake-play-btn">Chơi Ngay →</button>
+      </div>
+      <div class="stake-card stake-vip" data-game="poker" data-stake="100000" data-min-buyin="1000000">
+        <div class="stake-level">💎 VIP</div>
+        <div class="stake-amount">🪙 Blind 50k/100k</div>
+        <div class="stake-buyin">Buy-in tối thiểu 1,000,000 🪙</div>
+        <div class="stake-players"><span class="dot-live"></span> Hàng chờ</div>
+        <button class="btn btn-primary stake-play-btn">Chơi Ngay →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TIẾN LÊN -->
+  <div class="game-section">
+    <div class="game-section-header">
+      <div class="game-section-icon">⚡</div>
+      <div>
+        <h2 class="game-section-title">Tiến Lên Miền Nam</h2>
+      </div>
+    </div>
+    <div class="stakes-grid">
+      <div class="stake-card" data-game="tienlen" data-stake="100" data-min-buyin="1000">
+        <div class="stake-level">⚪ Mới Chơi</div>
+        <div class="stake-amount">🪙 100 / ván</div>
+        <div class="stake-buyin">Vào tối thiểu 1,000 🪙</div>
+        <div class="stake-players"><span class="dot-live"></span> Hàng chờ</div>
+        <button class="btn btn-primary stake-play-btn">Chơi Ngay →</button>
+      </div>
+      <div class="stake-card" data-game="tienlen" data-stake="200" data-min-buyin="2000">
+        <div class="stake-level">🟢 Tập Sự</div>
+        <div class="stake-amount">🪙 200 / ván</div>
+        <div class="stake-buyin">Vào tối thiểu 2,000 🪙</div>
+        <div class="stake-players"><span class="dot-live"></span> Hàng chờ</div>
+        <button class="btn btn-primary stake-play-btn">Chơi Ngay →</button>
+      </div>
+      <div class="stake-card" data-game="tienlen" data-stake="500" data-min-buyin="5000">
+        <div class="stake-level">🟡 Phổ Thông</div>
+        <div class="stake-amount">🪙 500 / ván</div>
+        <div class="stake-buyin">Vào tối thiểu 5,000 🪙</div>
+        <div class="stake-players"><span class="dot-live"></span> Hàng chờ</div>
+        <button class="btn btn-primary stake-play-btn">Chơi Ngay →</button>
+      </div>
+      <div class="stake-card stake-featured" data-game="tienlen" data-stake="2000" data-min-buyin="20000">
+        <div class="stake-badge-hot">HOT</div>
+        <div class="stake-level">🔵 Trung Cấp</div>
+        <div class="stake-amount">🪙 2,000 / ván</div>
+        <div class="stake-buyin">Vào tối thiểu 20,000 🪙</div>
+        <div class="stake-players"><span class="dot-live"></span> Hàng chờ</div>
+        <button class="btn btn-primary stake-play-btn">Chơi Ngay →</button>
+      </div>
+      <div class="stake-card" data-game="tienlen" data-stake="5000" data-min-buyin="50000">
+        <div class="stake-level">🔴 Cao Thủ</div>
+        <div class="stake-amount">🪙 5,000 / ván</div>
+        <div class="stake-buyin">Vào tối thiểu 50,000 🪙</div>
+        <div class="stake-players"><span class="dot-live"></span> Hàng chờ</div>
+        <button class="btn btn-primary stake-play-btn">Chơi Ngay →</button>
+      </div>
+      <div class="stake-card stake-vip" data-game="tienlen" data-stake="20000" data-min-buyin="200000">
+        <div class="stake-level">💎 VIP</div>
+        <div class="stake-amount">🪙 20,000 / ván</div>
+        <div class="stake-buyin">Vào tối thiểu 200,000 🪙</div>
+        <div class="stake-players"><span class="dot-live"></span> Hàng chờ</div>
+        <button class="btn btn-primary stake-play-btn">Chơi Ngay →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SÂM LỐC -->
+  <div class="game-section">
+    <div class="game-section-header">
+      <div class="game-section-icon">🌪️</div>
+      <div>
+        <h2 class="game-section-title">Sâm Lốc</h2>
+      </div>
+    </div>
+    <div class="stakes-grid">
+      <div class="stake-card" data-game="sam" data-stake="10" data-min-buyin="500">
+        <div class="stake-level">⚪ Mới Chơi</div>
+        <div class="stake-amount">🪙 10 / lá bài</div>
+        <div class="stake-buyin">Vào tối thiểu 500 🪙</div>
+        <div class="stake-players"><span class="dot-live"></span> Hàng chờ</div>
+        <button class="btn btn-primary stake-play-btn">Chơi Ngay →</button>
+      </div>
+      <div class="stake-card" data-game="sam" data-stake="50" data-min-buyin="1000">
+        <div class="stake-level">🟢 Tập Sự</div>
+        <div class="stake-amount">🪙 50 / lá bài</div>
+        <div class="stake-buyin">Vào tối thiểu 1,000 🪙</div>
+        <div class="stake-players"><span class="dot-live"></span> Hàng chờ</div>
+        <button class="btn btn-primary stake-play-btn">Chơi Ngay →</button>
+      </div>
+      <div class="stake-card" data-game="sam" data-stake="100" data-min-buyin="1500">
+        <div class="stake-level">🟡 Căn Bản</div>
+        <div class="stake-amount">🪙 100 / lá bài</div>
+        <div class="stake-buyin">Vào tối thiểu 1,500 🪙</div>
+        <div class="stake-players"><span class="dot-live"></span> Hàng chờ</div>
+        <button class="btn btn-primary stake-play-btn">Chơi Ngay →</button>
+      </div>
+      <div class="stake-card" data-game="sam" data-stake="200" data-min-buyin="2000">
+        <div class="stake-level">🟡 Phổ Thông</div>
+        <div class="stake-amount">🪙 200 / lá bài</div>
+        <div class="stake-buyin">Vào tối thiểu 2,000 🪙</div>
+        <div class="stake-players"><span class="dot-live"></span> Hàng chờ</div>
+        <button class="btn btn-primary stake-play-btn">Chơi Ngay →</button>
+      </div>
+      <div class="stake-card stake-featured" data-game="sam" data-stake="1000" data-min-buyin="10000">
+        <div class="stake-badge-hot">HOT</div>
+        <div class="stake-level">🔵 Trung Cấp</div>
+        <div class="stake-amount">🪙 1,000 / lá bài</div>
+        <div class="stake-buyin">Vào tối thiểu 10,000 🪙</div>
+        <div class="stake-players"><span class="dot-live"></span> Hàng chờ</div>
+        <button class="btn btn-primary stake-play-btn">Chơi Ngay →</button>
+      </div>
+      <div class="stake-card" data-game="sam" data-stake="5000" data-min-buyin="50000">
+        <div class="stake-level">🔴 Cao Thủ</div>
+        <div class="stake-amount">🪙 5,000 / lá bài</div>
+        <div class="stake-buyin">Vào tối thiểu 50,000 🪙</div>
+        <div class="stake-players"><span class="dot-live"></span> Hàng chờ</div>
+        <button class="btn btn-primary stake-play-btn">Chơi Ngay →</button>
+      </div>
+      <div class="stake-card stake-vip" data-game="sam" data-stake="20000" data-min-buyin="200000">
+        <div class="stake-level">💎 VIP</div>
+        <div class="stake-amount">🪙 20,000 / lá bài</div>
+        <div class="stake-buyin">Vào tối thiểu 200,000 🪙</div>
+        <div class="stake-players"><span class="dot-live"></span> Hàng chờ</div>
+        <button class="btn btn-primary stake-play-btn">Chơi Ngay →</button>
+      </div>
+    </div>
+  </div>
+
+</section>
+
+<!-- ===== SCREEN: TABLE ===== -->
+<section id="screen-table" class="screen">
+  <div class="table-screen-header">
+    <div class="table-header-left">
+      <button id="btn-back-to-lobby" class="btn btn-secondary btn-back-lobby">← Về Sảnh</button>
+      <div class="room-tag-info">
+        <span id="table-game-name" class="game-tag-badge">TÁ LẢ</span>
+        <span class="room-code-tag">Phòng: <strong id="table-room-code-display">------</strong></span>
+        <span class="stake-info-tag" id="stake-info-tag">⚡ 2,000/ván</span>
+        <span class="room-timer-tag">⏱️ <strong id="table-room-timer-display">15:00</strong></span>
+        <span class="player-count-tag">👥 <strong id="table-player-count">1</strong>/4</span>
+      </div>
+    </div>
+    <div class="table-header-right">
+      <div id="table-phase-badge" class="phase-badge">Chờ chia bài</div>
+      <button id="btn-toggle-chat" class="btn btn-secondary btn-chat-toggle" title="Chat bàn chơi">💬</button>
+      <div class="round-status-indicator" id="table-turn-indicator">Đang chờ</div>
+    </div>
+  </div>
+
+  <div id="waiting-overlay" class="waiting-overlay" style="display:none;">
+    <div class="waiting-overlay-content">
+      <div class="waiting-spinner"></div>
+      <h3 class="waiting-title">⏳ Đang chờ người chơi...</h3>
+      <p class="waiting-desc">Cần tối thiểu <strong>2 người</strong> để bắt đầu chia bài.</p>
+      <div class="waiting-room-code">
+        Mã mời bạn bè: <strong id="waiting-room-code-text">------</strong>
+        <button id="btn-copy-room-code" class="btn btn-secondary" style="padding:0.3rem 0.65rem;font-size:0.78rem;">📋 Sao chép</button>
+      </div>
+      <div id="waiting-players-list" class="waiting-players-list"></div>
+    </div>
+  </div>
+
+  <div id="result-banner" class="result-banner" style="display:none;"></div>
+
+  <div class="casino-table-wrapper">
+    <div class="table-seat seat-north" id="seat-north">
+      <div class="player-avatar" id="seat-north-avatar">👤</div>
+      <div class="player-info-card">
+        <div class="player-name" id="seat-north-name">Chờ người chơi...</div>
+        <div class="player-chips" id="seat-north-chips">--- 🪙</div>
+      </div>
+      <div class="seat-hand-facedown" id="seat-north-cards"></div>
+      <div class="player-action-badge" id="badge-north" style="display:none;"></div>
+      <button class="admin-seat-kick-btn" id="btn-kick-north" style="display:none;">🚨 Kick</button>
+    </div>
+    <div class="table-seat seat-west" id="seat-west">
+      <div class="player-avatar" id="seat-west-avatar">👤</div>
+      <div class="player-info-card">
+        <div class="player-name" id="seat-west-name">Chờ người chơi...</div>
+        <div class="player-chips" id="seat-west-chips">--- 🪙</div>
+      </div>
+      <div class="seat-hand-facedown" id="seat-west-cards"></div>
+      <div class="player-action-badge" id="badge-west" style="display:none;"></div>
+      <button class="admin-seat-kick-btn" id="btn-kick-west" style="display:none;">🚨 Kick</button>
+    </div>
+    <div class="table-seat seat-east" id="seat-east">
+      <div class="player-avatar" id="seat-east-avatar">👤</div>
+      <div class="player-info-card">
+        <div class="player-name" id="seat-east-name">Chờ người chơi...</div>
+        <div class="player-chips" id="seat-east-chips">--- 🪙</div>
+      </div>
+      <div class="seat-hand-facedown" id="seat-east-cards"></div>
+      <div class="player-action-badge" id="badge-east" style="display:none;"></div>
+      <button class="admin-seat-kick-btn" id="btn-kick-east" style="display:none;">🚨 Kick</button>
+    </div>
+    <div class="table-center-area">
+      <div class="main-pot-display">
+        <span>POT:</span>
+        <span id="table-pot-amount" class="pot-number">0</span>
+        <span>🪙</span>
+      </div>
+      <div class="table-center-objects">
+        <div class="deck-pile-container" id="deck-pile" title="Bốc bài từ nọc">
+          <div class="playing-card card-back deck-top-card"></div>
+          <span class="deck-count-badge" id="deck-remaining-count">52</span>
+        </div>
+        <div class="discard-pile-container">
+          <div class="discard-cards-area" id="table-discard-cards">
+            <div class="empty-discard-placeholder">Chưa đánh bài</div>
+          </div>
+        </div>
+        <div class="community-cards-container" id="community-cards" style="display:none;"></div>
+      </div>
+      <div id="phase-label" class="phase-label" style="display:none;"></div>
+    </div>
+    <div class="table-seat seat-south" id="seat-self">
+      <div class="self-seat-badge">
+        <div class="player-avatar avatar-highlight" id="seat-self-avatar">😎</div>
+        <div class="player-info-card info-highlight">
+          <div class="player-name" id="seat-self-name">Bạn (Chủ Bàn)</div>
+          <div class="player-chips" id="seat-self-chips">0 🪙</div>
+        </div>
+      </div>
+    </div>
+    <div class="player-hand-wrapper">
+      <div class="phom-zone-container" id="phom-zone" style="display:none;">
+        <div class="zone-header">
+          <span class="zone-icon">✨</span>
+          <span class="zone-title">BỘ PHỎM (Tự động gom)</span>
+          <span class="zone-badge" id="phom-count-badge">0 Phỏm</span>
+        </div>
+        <div class="phom-cards-list" id="phom-cards-container"></div>
+      </div>
+      <div class="hand-zone-container">
+        <div class="zone-header">
+          <span class="zone-icon">🃏</span>
+          <span class="zone-title" id="hand-zone-title">BÀI TRÊN TAY</span>
+          <span class="zone-badge badge-trash" id="trash-score-badge" style="display:none;">0đ Rác</span>
+          <span class="zone-badge" id="hand-eval-badge" style="display:none;"></span>
+        </div>
+        <div class="player-hand-cards" id="player-hand-cards"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="table-controls-bar">
+    <div class="eval-badge" id="eval-status-badge">
+      <span>Trạng thái:</span>
+      <strong id="eval-result-text">Sẵn sàng vào ván</strong>
+    </div>
+    <div class="action-buttons-group" id="actions-tala" style="display:none;">
+      <button id="btn-draw-card" class="btn btn-secondary action-btn">📥 Bốc Bài</button>
+      <button id="btn-take-card" class="btn btn-secondary action-btn">😋 Ăn Bài</button>
+      <button id="btn-play-card" class="btn btn-success action-btn">⚔️ Đánh Bài</button>
+      <button id="btn-show-phom" class="btn btn-primary action-btn">🏆 Hạ Phỏm</button>
+      <button id="btn-sort-cards-tala" class="btn btn-secondary action-btn">🔀 Sắp Xếp</button>
+      <button id="btn-deal-hand" class="btn btn-primary action-btn deal-btn">🎴 Chia Bài Mới</button>
+    </div>
+    <div class="action-buttons-group" id="actions-poker" style="display:none;">
+      <button id="btn-poker-check" class="btn btn-secondary action-btn">👁️ Check</button>
+      <button id="btn-poker-call" class="btn btn-secondary action-btn">✅ Theo (Call)</button>
+      <button id="btn-poker-raise" class="btn btn-primary action-btn">🪙 Raise</button>
+      <button id="btn-poker-allin" class="btn btn-warning action-btn">💥 All-in</button>
+      <button id="btn-poker-fold" class="btn btn-danger action-btn">🏳️ Fold</button>
+      <button id="btn-deal-poker" class="btn btn-primary action-btn deal-btn">🎴 Chia Bài Mới</button>
+    </div>
+    <div class="action-buttons-group" id="actions-tienlen" style="display:none;">
+      <button id="btn-tl-play" class="btn btn-success action-btn">⚔️ Đánh Bài</button>
+      <button id="btn-tl-pass" class="btn btn-secondary action-btn">⏭️ Bỏ Lượt</button>
+      <button id="btn-tl-sort" class="btn btn-secondary action-btn">🔀 Sắp Xếp</button>
+      <button id="btn-deal-tienlen" class="btn btn-primary action-btn deal-btn">🎴 Chia Bài Mới</button>
+    </div>
+    <div class="action-buttons-group" id="actions-sam" style="display:none;">
+      <button id="btn-sam-play" class="btn btn-success action-btn">⚔️ Đánh Bài</button>
+      <button id="btn-sam-pass" class="btn btn-secondary action-btn">⏭️ Bỏ Lượt</button>
+      <button id="btn-sam-bao" class="btn btn-danger action-btn">📣 Báo Sâm!</button>
+      <button id="btn-deal-sam" class="btn btn-primary action-btn deal-btn">🎴 Chia Bài Mới</button>
+    </div>
+  </div>
+
+  <div id="chat-panel" class="chat-panel" style="display:none;">
+    <div class="chat-panel-header">
+      <span>💬 Chat Bàn Chơi</span>
+      <button id="btn-close-chat" class="modal-close-btn" style="position:static;font-size:1.1rem;">&times;</button>
+    </div>
+    <div class="emoji-reaction-bar">
+      <span class="emoji-bar-label">Phản ứng:</span>
+      <div class="emoji-buttons">
+        <button class="emoji-btn" data-emoji="😂">😂</button>
+        <button class="emoji-btn" data-emoji="😤">😤</button>
+        <button class="emoji-btn" data-emoji="🤩">🤩</button>
+        <button class="emoji-btn" data-emoji="😱">😱</button>
+        <button class="emoji-btn" data-emoji="🫡">🫡</button>
+        <button class="emoji-btn" data-emoji="🤣">🤣</button>
+        <button class="emoji-btn" data-emoji="👍">👍</button>
+        <button class="emoji-btn" data-emoji="🔥">🔥</button>
+        <button class="emoji-btn" data-emoji="💀">💀</button>
+        <button class="emoji-btn" data-emoji="🎯">🎯</button>
+      </div>
+    </div>
+    <div class="chat-messages" id="chat-messages-list">
+      <div class="chat-system-msg">👋 Chào mừng đến bàn chơi!</div>
+    </div>
+    <div class="chat-input-area">
+      <input type="text" id="chat-input" class="chat-input" placeholder="Nhập tin nhắn... (Enter gửi)" maxlength="120">
+      <button id="btn-send-chat" class="btn btn-primary" style="padding:0.4rem 0.75rem;font-size:0.85rem;">Gửi</button>
+    </div>
+  </div>
+  <div id="emoji-float-popup" class="emoji-float-popup" style="display:none;"></div>
+</section>
+</main>
+
+<!-- ===== AUTH MODAL ===== -->
+<div id="auth-modal" class="modal-overlay">
+  <div class="modal-dialog">
+    <div class="modal-header">
+      <div class="auth-tabs">
+        <button type="button" class="auth-tab-btn active" id="tab-auth-login">Đăng Nhập</button>
+        <button type="button" class="auth-tab-btn" id="tab-auth-register">Đăng Ký</button>
+      </div>
+      <button id="btn-close-auth" class="modal-close-btn">&times;</button>
+    </div>
+    <div id="auth-alert" class="auth-alert" style="display:none;"></div>
+    <form id="auth-form">
+      <div class="form-group">
+        <label class="form-label">Tên tài khoản</label>
+        <input type="text" id="input-username" class="form-input" placeholder="Từ 3 ký tự (VD: player_vip)" required autocomplete="username">
+        <small class="form-hint">Tối thiểu 3 ký tự, không khoảng trắng.</small>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Mật khẩu</label>
+        <input type="password" id="input-password" class="form-input" placeholder="Tối thiểu 6 ký tự" required autocomplete="current-password">
+        <small class="form-hint">Tối thiểu 6 ký tự bảo mật.</small>
+      </div>
+      <div class="form-group" id="group-repassword" style="display:none;">
+        <label class="form-label">Nhập lại mật khẩu</label>
+        <input type="password" id="input-repassword" class="form-input" placeholder="Nhập lại mật khẩu vừa gõ">
+      </div>
+      <div style="margin-top:1.5rem;">
+        <button type="button" id="form-auth-submit" class="btn btn-primary btn-block">Đăng Nhập</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ===== DEPOSIT MODAL ===== -->
+<div id="deposit-modal" class="modal-overlay">
+  <div class="modal-dialog deposit-dialog">
+    <div class="modal-header">
+      <h3 class="modal-title">🪙 Nạp Chip Qua Mã QR</h3>
+      <button id="btn-close-deposit" class="modal-close-btn">&times;</button>
+    </div>
+    <label class="form-label">Chọn mệnh giá (1 VNĐ = 1 Chip):</label>
+    <div class="denom-grid">
+      <button type="button" class="denom-btn" data-amount="20000">20.000 đ</button>
+      <button type="button" class="denom-btn" data-amount="50000">50.000 đ</button>
+      <button type="button" class="denom-btn active" data-amount="100000">100.000 đ</button>
+      <button type="button" class="denom-btn" data-amount="200000">200.000 đ</button>
+      <button type="button" class="denom-btn" data-amount="500000">500.000 đ</button>
+      <button type="button" class="denom-btn" data-amount="1000000">1.000.000 đ</button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Hoặc nhập số tiền tùy chọn (VNĐ):</label>
+      <input type="number" id="input-custom-deposit" class="form-input" placeholder="Ví dụ: 150000" min="10000" step="10000">
+    </div>
+    <div class="qr-payment-box">
+      <div class="qr-image-wrapper"><img src="images/qr_payment.jpg" alt="Mã QR DO TIEN NHAT MINH" class="qr-image"></div>
+      <div class="qr-recipient-name">DO TIEN NHAT MINH</div>
+      <p style="font-size:0.75rem;color:#94a3b8;margin:4px 0 10px;">Quét mã nhận tiền từ mọi ứng dụng Ngân Hàng &amp; Ví Điện Tử</p>
+      <div class="qr-transfer-info">
+        <span>Số tiền nạp:</span>
+        <strong id="qr-display-amount" style="color:#fbbf24;font-size:1.05rem;">100,000 VNĐ</strong>
+      </div>
+      <div class="qr-transfer-info">
+        <span>Nội dung chuyển khoản:</span>
+        <div>
+          <span id="qr-display-syntax" class="qr-syntax-copy">NAP gamer</span>
+          <button type="button" id="btn-copy-syntax" class="btn btn-secondary" style="padding:2px 8px;font-size:0.7rem;margin-left:6px;">Sao chép</button>
+        </div>
+      </div>
+      <div id="deposit-status-alert" class="deposit-alert-box" style="display:none;"></div>
+      <button type="button" id="btn-confirm-deposit" class="btn btn-success btn-block" style="margin-top:0.75rem;">
+        ✔ Xác Nhận Đã Chuyển Khoản (Gửi Duyệt)
+      </button>
+    </div>
+    <div style="margin-top:1.25rem;border-top:1px solid rgba(255,255,255,0.1);padding-top:0.75rem;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+        <span style="font-size:0.85rem;font-weight:600;color:#cbd5e1;">📋 Lịch sử nạp gần đây:</span>
+        <button type="button" id="btn-refresh-my-deposits" class="btn btn-secondary" style="padding:2px 8px;font-size:0.7rem;">Làm mới</button>
+      </div>
+      <div id="my-deposit-history-list" class="my-deposit-history-list">
+        <div style="font-size:0.75rem;color:#64748b;text-align:center;padding:6px;">Chưa có yêu cầu nạp nào</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== ADMIN MODAL (Thiết kế lại với sidebar) ===== -->
+<div id="admin-modal" class="modal-overlay">
+  <div class="modal-dialog admin-dialog-new">
+    <!-- Sidebar -->
+    <div class="admin-sidebar">
+      <div class="admin-sidebar-header">
+        <div class="admin-crown">👑</div>
+        <div class="admin-sidebar-title">SUPER ADMIN</div>
+        <div class="admin-sidebar-sub">Toàn quyền hệ thống</div>
+      </div>
+      <nav class="admin-nav">
+        <button class="admin-nav-item active" data-tab="admin-view-overview">
+          <span class="admin-nav-icon">📊</span>
+          <span>Tổng Quan</span>
+        </button>
+        <button class="admin-nav-item" data-tab="admin-view-deposits">
+          <span class="admin-nav-icon">💳</span>
+          <span>Duyệt Nạp Tiền</span>
+          <span id="admin-pending-badge" class="admin-nav-badge" style="display:none;">0</span>
+        </button>
+        <button class="admin-nav-item" data-tab="admin-view-users">
+          <span class="admin-nav-icon">👥</span>
+          <span>Người Chơi</span>
+        </button>
+        <button class="admin-nav-item" data-tab="admin-view-tables">
+          <span class="admin-nav-icon">🎲</span>
+          <span>Bàn Đang Chơi</span>
+        </button>
+        <button class="admin-nav-item" data-tab="admin-view-spin">
+          <span class="admin-nav-icon">🎰</span>
+          <span>Vòng Quay</span>
+        </button>
+        <button class="admin-nav-item" data-tab="admin-view-logs">
+          <span class="admin-nav-icon">📜</span>
+          <span>Nhật Ký</span>
+        </button>
+      </nav>
+      <div class="admin-sidebar-footer">
+        <button type="button" id="btn-admin-refresh" class="btn btn-secondary" style="width:100%;font-size:0.8rem;padding:0.4rem;">🔄 Làm Mới</button>
+        <button id="btn-close-admin" class="btn btn-secondary" style="width:100%;font-size:0.8rem;padding:0.4rem;margin-top:0.4rem;">✕ Đóng</button>
+      </div>
+    </div>
+
+    <!-- Main content -->
+    <div class="admin-main-content">
+
+      <!-- OVERVIEW -->
+      <div id="admin-view-overview" class="admin-panel active">
+        <div class="admin-panel-title">📊 Tổng Quan Hệ Thống</div>
+        <div class="admin-kpi-grid">
+          <div class="admin-kpi-card">
+            <div class="admin-kpi-icon">👥</div>
+            <div class="admin-kpi-label">Tổng Người Chơi</div>
+            <div class="admin-kpi-value" id="admin-stat-users">0</div>
+          </div>
+          <div class="admin-kpi-card kpi-warning">
+            <div class="admin-kpi-icon">⏳</div>
+            <div class="admin-kpi-label">Đơn Nạp Chờ Duyệt</div>
+            <div class="admin-kpi-value" id="admin-stat-pending">0</div>
+          </div>
+          <div class="admin-kpi-card">
+            <div class="admin-kpi-icon">🪙</div>
+            <div class="admin-kpi-label">Tổng Chip Lưu Hành</div>
+            <div class="admin-kpi-value" id="admin-stat-chips">0</div>
+          </div>
+          <div class="admin-kpi-card kpi-danger">
+            <div class="admin-kpi-icon">🚫</div>
+            <div class="admin-kpi-label">Tài Khoản Bị Khóa</div>
+            <div class="admin-kpi-value" id="admin-stat-banned">0</div>
+          </div>
+          <div class="admin-kpi-card">
+            <div class="admin-kpi-icon">🎲</div>
+            <div class="admin-kpi-label">Bàn Chơi Mở</div>
+            <div class="admin-kpi-value" id="admin-stat-rooms">0</div>
+          </div>
+          <div class="admin-kpi-card kpi-success">
+            <div class="admin-kpi-icon">⚡</div>
+            <div class="admin-kpi-label">Hệ Thống</div>
+            <div class="admin-kpi-value" style="font-size:0.85rem;">Postgres + Redis</div>
+          </div>
+        </div>
+        <div class="admin-quick-actions">
+          <div class="admin-section-title">⚡ Thao Tác Nhanh</div>
+          <div class="admin-quick-btn-grid">
+            <button class="admin-quick-btn" onclick="document.querySelector('[data-tab=admin-view-deposits]').click()">
+              <span>💳</span><span>Duyệt Nạp Tiền</span>
+            </button>
+            <button class="admin-quick-btn" onclick="document.querySelector('[data-tab=admin-view-users]').click()">
+              <span>👥</span><span>Quản Lý Người Chơi</span>
+            </button>
+            <button class="admin-quick-btn" onclick="document.querySelector('[data-tab=admin-view-tables]').click()">
+              <span>🎲</span><span>Giám Sát Bàn Chơi</span>
+            </button>
+            <button class="admin-quick-btn" onclick="document.querySelector('[data-tab=admin-view-spin]').click()">
+              <span>🎰</span><span>Cài Đặt Vòng Quay</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- DEPOSITS -->
+      <div id="admin-view-deposits" class="admin-panel">
+        <div class="admin-panel-title">💳 Duyệt Nạp Chip</div>
+        <div class="admin-toolbar">
+          <div class="filter-pill-group">
+            <button type="button" class="filter-pill-btn active" data-filter="Pending">⏳ Chờ Duyệt (<span id="count-pending-filter">0</span>)</button>
+            <button type="button" class="filter-pill-btn" data-filter="All">Tất Cả</button>
+            <button type="button" class="filter-pill-btn" data-filter="Approved">Đã Duyệt</button>
+            <button type="button" class="filter-pill-btn" data-filter="Rejected">Từ Chối</button>
+          </div>
+          <span style="font-size:0.78rem;color:#64748b;">Xác nhận sau khi đối soát ngân hàng</span>
+        </div>
+        <div class="admin-table-container">
+          <table class="admin-data-table">
+            <thead><tr><th>Thời Gian</th><th>Người Chơi</th><th>Số Tiền</th><th>Cú Pháp GD</th><th>Trạng Thái</th><th>Thao Tác</th></tr></thead>
+            <tbody id="admin-deposits-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- USERS -->
+      <div id="admin-view-users" class="admin-panel">
+        <div class="admin-panel-title">👥 Quản Lý Người Chơi</div>
+        <div class="admin-toolbar">
+          <input type="text" id="admin-search-users" class="form-input" placeholder="🔍 Tìm kiếm tài khoản..." style="max-width:280px;padding:0.4rem 0.75rem;font-size:0.85rem;">
+          <div style="display:flex;gap:0.5rem;">
+            <button class="filter-pill-btn active" data-ufilter="all">Tất Cả</button>
+            <button class="filter-pill-btn" data-ufilter="banned">Đang Khóa</button>
+            <button class="filter-pill-btn" data-ufilter="active">Hoạt Động</button>
+          </div>
+        </div>
+        <div class="admin-table-container">
+          <table class="admin-data-table">
+            <thead><tr><th>Tài Khoản</th><th>Số Dư Ví</th><th>Vai Trò</th><th>Trạng Thái</th><th>Điều Chỉnh Chip</th><th>Xử Lý Vi Phạm</th></tr></thead>
+            <tbody id="admin-users-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- TABLES -->
+      <div id="admin-view-tables" class="admin-panel">
+        <div class="admin-panel-title">🎲 Bàn Chơi Đang Hoạt Động</div>
+        <div id="admin-tables-list" class="admin-tables-grid"></div>
+      </div>
+
+      <!-- SPIN CONFIG -->
+      <div id="admin-view-spin" class="admin-panel">
+        <div class="admin-panel-title">🎰 Quản Lý Vòng Quay May Mắn</div>
+        <div class="spin-admin-grid">
+          <div class="spin-admin-card">
+            <div class="spin-admin-card-title">⚙️ Cài Đặt Giải Thưởng</div>
+            <div class="spin-prizes-config" id="spin-prizes-config">
+              <div class="spin-prize-row">
+                <span>🥇 Giải Đặc Biệt</span>
+                <input type="number" class="form-input" style="width:110px;" value="50000" id="prize-jackpot"> 🪙
+              </div>
+              <div class="spin-prize-row">
+                <span>🥈 Giải Nhất</span>
+                <input type="number" class="form-input" style="width:110px;" value="10000" id="prize-1st"> 🪙
+              </div>
+              <div class="spin-prize-row">
+                <span>🥉 Giải Nhì</span>
+                <input type="number" class="form-input" style="width:110px;" value="5000" id="prize-2nd"> 🪙
+              </div>
+              <div class="spin-prize-row">
+                <span>🎁 Giải Ba</span>
+                <input type="number" class="form-input" style="width:110px;" value="2000" id="prize-3rd"> 🪙
+              </div>
+              <div class="spin-prize-row">
+                <span>🎀 Giải Khuyến Khích</span>
+                <input type="number" class="form-input" style="width:110px;" value="500" id="prize-cons"> 🪙
+              </div>
+              <div class="spin-prize-row">
+                <span>😅 Mất Lượt</span>
+                <span style="color:#64748b;font-size:0.85rem;">0 🪙</span>
+              </div>
+              <button class="btn btn-primary btn-block" style="margin-top:0.75rem;" onclick="adminSaveSpinConfig()">💾 Lưu Cài Đặt</button>
+            </div>
+          </div>
+          <div class="spin-admin-card">
+            <div class="spin-admin-card-title">📊 Thống Kê Vòng Quay Hôm Nay</div>
+            <div id="spin-today-stats" class="spin-today-stats">
+              <div class="spin-stat-row"><span>Tổng lượt quay:</span><strong id="spin-stat-total">0</strong></div>
+              <div class="spin-stat-row"><span>Chip đã trao:</span><strong id="spin-stat-chips">0 🪙</strong></div>
+              <div class="spin-stat-row"><span>Tài khoản tham gia:</span><strong id="spin-stat-users">0</strong></div>
+            </div>
+            <div class="spin-admin-card-title" style="margin-top:1rem;">📋 Lịch Sử Quay Gần Đây</div>
+            <div id="admin-spin-history" class="admin-spin-history-list">
+              <div style="font-size:0.75rem;color:#64748b;text-align:center;padding:8px;">Chưa có dữ liệu</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- LOGS -->
+      <div id="admin-view-logs" class="admin-panel">
+        <div class="admin-panel-title">📜 Nhật Ký Thao Tác Hệ Thống</div>
+        <div class="admin-table-container">
+          <table class="admin-data-table">
+            <thead><tr><th>Thời Gian</th><th>Admin</th><th>Hành Động</th><th>Đối Tượng</th><th>Chi Tiết</th></tr></thead>
+            <tbody id="admin-logs-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div><!-- end admin-main-content -->
+  </div>
+</div>
+
+<!-- BAN MODAL -->
+<div id="ban-user-modal" class="modal-overlay" style="z-index:1050;">
+  <div class="modal-dialog" style="max-width:440px;">
+    <div class="modal-header">
+      <h3 class="modal-title" style="color:#ef4444;">🚫 Khóa Tài Khoản Người Chơi</h3>
+      <button id="btn-close-ban" class="modal-close-btn">&times;</button>
+    </div>
+    <div style="padding:1rem 0;">
+      <p style="font-size:0.9rem;margin-bottom:0.75rem;">Khóa tài khoản: <strong id="ban-target-username" style="color:#fbbf24;">...</strong></p>
+      <div class="form-group">
+        <label class="form-label">Thời hạn khóa:</label>
+        <select id="ban-duration-select" class="form-input">
+          <option value="3">Khóa 3 Ngày (Cảnh cáo)</option>
+          <option value="7">Khóa 7 Ngày (Tái phạm)</option>
+          <option value="30">Khóa 30 Ngày (Gian lận nghiêm trọng)</option>
+          <option value="0">Khóa Vĩnh Viễn (Hack / Phá hoại)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Lý do khóa:</label>
+        <textarea id="ban-reason-input" class="form-input" rows="3">Nghi vấn gian lận bài / vi phạm quy định</textarea>
+      </div>
+      <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;">
+        <button type="button" id="btn-cancel-ban" class="btn btn-secondary">Hủy</button>
+        <button type="button" id="btn-confirm-ban" class="btn btn-danger">Xác Nhận Khóa</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== LUCKY SPIN MODAL (VÒNG QUAY MAY MẮN) ===== -->
+<div id="lucky-spin-modal" class="modal-overlay">
+  <div class="modal-dialog spin-dialog">
+    <div class="modal-header">
+      <h3 class="modal-title">🎰 Vòng Quay May Mắn (Lucky Spin)</h3>
+      <button id="btn-close-spin" class="modal-close-btn">&times;</button>
+    </div>
+    <div class="spin-container" style="padding: 1rem 0 0.5rem;">
+      <!-- Vòng quay canvas bên trái -->
+      <div class="spin-wheel-wrap">
+        <div class="spin-arrow">▼</div>
+        <canvas id="spin-canvas" width="340" height="340"></canvas>
+      </div>
+
+      <!-- Bảng thông tin bên phải -->
+      <div class="spin-info-box">
+        <div class="spin-turns-left">
+          <div>Lượt quay hôm nay còn lại:</div>
+          <div class="spin-turns-number" id="spin-turns-count">3</div>
+          <div style="font-size:0.78rem;color:#64748b;margin-top:2px;">Tối đa 3 lượt / ngày / tài khoản</div>
+        </div>
+
+        <div id="spin-prize-display" class="spin-prize-display" style="display:none;">
+          <div class="spin-prize-label">🎉 CHÚC MỪNG BẠN TRÚNG:</div>
+          <div class="spin-prize-value" id="spin-prize-text">+10,000 🪙</div>
+        </div>
+
+        <button type="button" id="btn-do-spin" class="btn btn-warning btn-block" style="font-size:1.15rem;font-weight:900;padding:0.85rem;letter-spacing:0.04em;box-shadow:0 4px 20px rgba(245,158,11,0.4);">
+          🚀 QUAY NGAY!
+        </button>
+
+        <div class="spin-note">
+          ⏰ Lượt quay được làm mới vào 00:00 mỗi ngày. Chúc bạn may mắn!
+        </div>
+
+        <div class="spin-history-box" style="margin-top:1rem;">
+          <div class="spin-history-title">📜 Lịch sử quay gần đây:</div>
+          <div id="spin-history-list" class="spin-history-list">
+            <div style="font-size:0.75rem;color:#64748b;text-align:center;padding:4px;">Chưa có lượt quay nào hôm nay</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== CUSTOM CONFIRM / PROMPT DIALOG POPUP ===== -->
+<div id="custom-dialog-modal" class="modal-overlay" style="z-index: 1200;">
+  <div class="modal-dialog custom-dialog-box">
+    <div class="custom-dialog-header">
+      <span id="custom-dialog-icon" class="custom-dialog-icon">ℹ️</span>
+      <h3 id="custom-dialog-title" class="modal-title" style="font-size: 1.15rem; margin: 0;">Xác Nhận</h3>
+      <button type="button" id="btn-close-dialog" class="modal-close-btn" style="margin-left: auto;">&times;</button>
+    </div>
+    <div id="custom-dialog-message" class="custom-dialog-body">
+      Nội dung thông báo
+    </div>
+    <div id="custom-dialog-input-group" class="custom-dialog-input-wrap" style="display: none;">
+      <input type="text" id="custom-dialog-input" class="form-input" style="width: 100%; font-size: 0.95rem; padding: 0.6rem 0.85rem;">
+    </div>
+    <div class="custom-dialog-footer">
+      <button type="button" id="custom-dialog-cancel-btn" class="btn btn-secondary" style="padding: 0.45rem 1.1rem;">Hủy</button>
+      <button type="button" id="custom-dialog-confirm-btn" class="btn btn-primary" style="padding: 0.45rem 1.3rem;">Xác Nhận</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container" class="toast-container"></div>
+<script src="js/app.js"></script>
+</body>
+</html>
