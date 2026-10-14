@@ -66,6 +66,11 @@ namespace CardGame.Server.Controllers
             public string TableId { get; set; } = string.Empty;
         }
 
+        public class DeleteUserRequest
+        {
+            public string UserId { get; set; } = string.Empty;
+        }
+
         // Initialize admin account if not exists
         [HttpPost("init")]
         public async Task<IActionResult> EnsureAdmin()
@@ -236,12 +241,15 @@ namespace CardGame.Server.Controllers
                 {
                     u.Id,
                     u.Username,
+                    Nickname = u.Nickname ?? u.Username,
+                    Avatar = u.Avatar ?? "👤",
                     Balance = u.Wallet != null ? u.Wallet.Balance : 0,
                     u.Role,
                     IsAdmin = u.Role == "admin" || u.Username == "admin",
                     u.IsBanned,
                     u.BannedUntil,
-                    u.BanReason
+                    u.BanReason,
+                    u.CreatedAt
                 })
                 .ToListAsync();
 
@@ -347,6 +355,66 @@ namespace CardGame.Server.Controllers
             {
                 Success = true,
                 Message = $"Đã mở khóa tài khoản cho {user.Username} thành công."
+            });
+        }
+
+        // Permanently delete user from database
+        [HttpPost("delete-user")]
+        public async Task<IActionResult> DeleteUserPermanently([FromBody] DeleteUserRequest req)
+        {
+            if (string.IsNullOrEmpty(req.UserId))
+            {
+                return BadRequest(new { Message = "UserId không được để trống." });
+            }
+
+            var user = await _context.Users.Include(u => u.Wallet).FirstOrDefaultAsync(u => u.Id == req.UserId);
+            if (user == null)
+            {
+                return NotFound(new { Message = "Không tìm thấy người chơi cần xóa." });
+            }
+
+            if (user.Role == "admin" || user.Username.ToLower() == "admin")
+            {
+                return BadRequest(new { Message = "Không thể xóa tài khoản Quản Trị Viên (Super Admin)!" });
+            }
+
+            var deletedUsername = user.Username;
+
+            // 1. Kick user from all active tables
+            foreach (var table in _roomService.GetAllTables())
+            {
+                _roomService.KickPlayerFromTable(table.TableId, user.Id);
+            }
+
+            // 2. Remove related deposits
+            var deposits = await _context.DepositRequests.Where(d => d.UserId == user.Id || d.Username == deletedUsername).ToListAsync();
+            _context.DepositRequests.RemoveRange(deposits);
+
+            // 3. Remove wallet
+            if (user.Wallet != null)
+            {
+                _context.Wallets.Remove(user.Wallet);
+            }
+
+            // 4. Remove user entity permanently
+            _context.Users.Remove(user);
+
+            // 5. Audit log
+            _context.AuditLogs.Add(new AuditLog
+            {
+                AdminUsername = "admin",
+                ActionType = "DELETE_USER",
+                TargetUser = deletedUsername,
+                Details = $"Xóa vĩnh viễn tài khoản {deletedUsername} khỏi cơ sở dữ liệu hệ thống.",
+                CreatedAt = DateTime.UtcNow
+            });
+
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                Success = true,
+                Message = $"Đã xóa vĩnh viễn tài khoản {deletedUsername} khỏi cơ sở dữ liệu hệ thống."
             });
         }
 

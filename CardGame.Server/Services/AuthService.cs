@@ -34,7 +34,7 @@ namespace CardGame.Server.Services
             {
                 Username = username,
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword(password),
-                Wallet = new Wallet { Balance = 10000 } // Initial balance
+                Wallet = new Wallet { Balance = 3000 } // Tặng 3.000 chip cho người mới đăng ký
             };
 
             _context.Users.Add(user);

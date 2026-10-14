@@ -371,12 +371,18 @@ async function loginUser(username, password) {
     try {
         const res = await apiCall('/api/auth/login', 'POST', { username, password });
         state.token = res.token;
-        state.user = { id: res.userId, username: res.username || username, role: res.role || 'user' };
+        state.user = {
+            id: res.userId,
+            username: res.username || username,
+            nickname: res.nickname || res.username || username,
+            avatar: res.avatar || '👤',
+            role: res.role || 'user'
+        };
         localStorage.setItem('cardgame_token', res.token);
         localStorage.setItem('cardgame_user', JSON.stringify(state.user));
 
         closeModal('auth-modal');
-        showToast(`Đăng nhập thành công! Chào mừng ${state.user.username}.`);
+        showToast(`Đăng nhập thành công! Chào mừng ${state.user.nickname || state.user.username}.`);
         updateAuthUI();
         await fetchWalletBalance();
     } catch (e) {
@@ -435,9 +441,22 @@ function updateAuthUI() {
         userBar.style.display = 'flex';
         
         const isAdmin = state.user.role === 'admin' || state.user.username?.toLowerCase() === 'admin';
-        document.getElementById('header-username').innerHTML = `${state.user.username} ${isAdmin ? '<span class="role-badge role-admin">ADMIN</span>' : ''}`;
-        document.getElementById('seat-self-name').textContent = state.user.username + (isAdmin ? ' 👑 (Admin)' : ' (Bạn)');
-        document.getElementById('seat-self-avatar').textContent = isAdmin ? '👑' : '😎';
+        const displayName = state.user.nickname || state.user.username;
+        const avatar = state.user.avatar || (isAdmin ? '👑' : '👤');
+
+        const headerAvatar = document.getElementById('header-avatar');
+        if (headerAvatar) headerAvatar.textContent = avatar;
+
+        const headerUsername = document.getElementById('header-username');
+        if (headerUsername) {
+            headerUsername.innerHTML = `${escapeHtml(displayName)} ${isAdmin ? '<span class="role-badge role-admin">ADMIN</span>' : ''}`;
+        }
+
+        const seatSelfName = document.getElementById('seat-self-name');
+        if (seatSelfName) seatSelfName.textContent = displayName + (isAdmin ? ' 👑 (Admin)' : ' (Bạn)');
+
+        const seatSelfAvatar = document.getElementById('seat-self-avatar');
+        if (seatSelfAvatar) seatSelfAvatar.textContent = avatar;
 
         if (adminBtn) {
             adminBtn.style.display = isAdmin ? 'inline-flex' : 'none';
@@ -452,6 +471,8 @@ function updateAuthUI() {
         authActions.style.display = 'flex';
         userBar.style.display = 'none';
         if (adminBtn) adminBtn.style.display = 'none';
+        const headerAvatar = document.getElementById('header-avatar');
+        if (headerAvatar) headerAvatar.textContent = '👤';
         document.getElementById('header-chip-count').textContent = '0';
         document.getElementById('seat-self-name').textContent = 'Bạn (Chưa đăng nhập)';
         document.getElementById('seat-self-chips').textContent = '0 🪙';
@@ -788,17 +809,24 @@ async function loadAdminUsers() {
             let banActionBtn = '';
             if (!u.isAdmin) {
                 if (u.isBanned) {
-                    banActionBtn = `<button class="btn btn-success btn-chip-action" onclick="adminUnbanUser('${u.id}', '${u.username}')">🔓 Mở Khóa</button>`;
+                    banActionBtn = `<button class="btn btn-success btn-chip-action" onclick="adminUnbanUser('${u.id}', '${u.username}')">🔓 Mở</button>`;
                 } else {
-                    banActionBtn = `<button class="btn btn-danger btn-chip-action" onclick="openBanModal('${u.id}', '${u.username}')">🚫 Khóa Nick</button>`;
+                    banActionBtn = `<button class="btn btn-danger btn-chip-action" onclick="openBanModal('${u.id}', '${u.username}')">🚫 Khóa</button>`;
                 }
+                banActionBtn += `<button class="btn btn-danger btn-chip-action" style="background:#dc2626;border-color:#b91c1c;margin-left:4px;" onclick="adminDeleteUser('${u.id}', '${u.username}')" title="Xóa vĩnh viễn khỏi Database">🗑️ Xóa</button>`;
             }
 
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>
-                    <strong style="color: #f8fafc;">${u.username}</strong>
-                    ${u.isAdmin ? '<span class="role-badge role-admin" style="margin-left: 6px;">ADMIN</span>' : ''}
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <span style="font-size:1.3rem;">${escapeHtml(u.avatar || '👤')}</span>
+                        <div>
+                            <strong style="color: #f8fafc;">${escapeHtml(u.nickname || u.username)}</strong>
+                            <div style="font-size:0.75rem;color:#94a3b8;">@${escapeHtml(u.username)}</div>
+                        </div>
+                        ${u.isAdmin ? '<span class="role-badge role-admin" style="margin-left: 4px;">ADMIN</span>' : ''}
+                    </div>
                 </td>
                 <td style="color: #fbbf24; font-weight: 700;">${Number(u.balance).toLocaleString()} 🪙</td>
                 <td>
@@ -813,7 +841,7 @@ async function loadAdminUsers() {
                         <button class="btn btn-primary btn-chip-action" onclick="adminCustomAdjustChips('${u.id}', '${u.username}')">Tùy Chỉnh</button>
                     </div>
                 </td>
-                <td>${banActionBtn}</td>
+                <td><div style="display:flex;align-items:center;">${banActionBtn}</div></td>
             `;
             tbody.appendChild(tr);
         });
@@ -821,6 +849,27 @@ async function loadAdminUsers() {
         tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #f87171; padding: 1rem;">Lỗi: ${e.message}</td></tr>`;
     }
 }
+
+window.adminDeleteUser = async function(userId, username) {
+    const ok = await showConfirmDialog({
+        title: '⚠️ CẢNH BÁO XÓA TÀI KHOẢN',
+        message: `Bạn có chắc chắn muốn xóa vĩnh viễn tài khoản <strong>"${escapeHtml(username)}"</strong> khỏi cơ sở dữ liệu?<br><br><span style="color:#f87171;font-size:0.85rem;">⚠️ Thao tác này sẽ xóa toàn bộ số dư chip, lịch sử giao dịch và không thể hoàn tác!</span>`,
+        confirmText: 'Xóa Vĩnh Viễn',
+        cancelText: 'Hủy Bỏ',
+        type: 'danger',
+        icon: '🗑️'
+    });
+    if (!ok) return;
+
+    try {
+        const res = await apiCall('/api/admin/delete-user', 'POST', { userId });
+        showToast(res.message || 'Đã xóa tài khoản vĩnh viễn khỏi hệ thống!');
+        await loadAdminUsers();
+        await loadAdminDashboard();
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+};
 
 window.adminAdjustChips = async function(userId, username, amount) {
     try {
@@ -1842,9 +1891,203 @@ function showFloatingEmoji(emoji) {
     }, 1500);
 }
 
+// ==========================================================================
+// PROFILE MANAGEMENT (HỒ SƠ CÁ NHÂN & ĐỔI MẬT KHẨU)
+// ==========================================================================
+let selectedProfileAvatar = '👤';
+
+async function openProfileModal() {
+    if (!state.token) {
+        setAuthMode('login');
+        openModal('auth-modal');
+        showAuthAlert('Vui lòng đăng nhập để xem và chỉnh sửa hồ sơ!', 'warning');
+        return;
+    }
+
+    // Reset tabs to first tab
+    const tabBtns = document.querySelectorAll('.profile-tab-btn');
+    if (tabBtns.length >= 2) {
+        tabBtns[0].classList.add('active');
+        tabBtns[1].classList.remove('active');
+    }
+    const pane1 = document.getElementById('profile-tab-info');
+    const pane2 = document.getElementById('profile-tab-password');
+    if (pane1) pane1.style.display = 'block';
+    if (pane2) pane2.style.display = 'none';
+
+    // Reset alerts
+    const infoAlert = document.getElementById('profile-info-alert');
+    const pwdAlert = document.getElementById('profile-pwd-alert');
+    if (infoAlert) { infoAlert.style.display = 'none'; infoAlert.textContent = ''; }
+    if (pwdAlert) { pwdAlert.style.display = 'none'; pwdAlert.textContent = ''; }
+
+    // Clear password inputs
+    const curPwd = document.getElementById('profile-pwd-current');
+    const newPwd = document.getElementById('profile-pwd-new');
+    const confPwd = document.getElementById('profile-pwd-confirm');
+    if (curPwd) curPwd.value = '';
+    if (newPwd) newPwd.value = '';
+    if (confPwd) confPwd.value = '';
+
+    openModal('profile-modal');
+
+    try {
+        const profile = await apiCall('/api/auth/profile', 'GET');
+        
+        selectedProfileAvatar = profile.avatar || '👤';
+        const nickname = profile.nickname || profile.username;
+
+        // Populate summary card
+        const cardAvatar = document.getElementById('profile-card-avatar');
+        if (cardAvatar) cardAvatar.textContent = selectedProfileAvatar;
+
+        const cardName = document.getElementById('profile-card-name');
+        if (cardName) cardName.textContent = nickname;
+
+        const cardUsername = document.getElementById('profile-card-username');
+        if (cardUsername) cardUsername.textContent = `@${profile.username}`;
+
+        const cardRole = document.getElementById('profile-card-role');
+        if (cardRole) {
+            const isAdmin = profile.role === 'admin' || profile.username?.toLowerCase() === 'admin';
+            cardRole.className = `role-badge ${isAdmin ? 'role-admin' : 'role-user'}`;
+            cardRole.textContent = isAdmin ? '👑 Quản Trị Viên' : 'Người Chơi';
+        }
+
+        const cardChips = document.getElementById('profile-card-chips');
+        if (cardChips) cardChips.textContent = `${Number(profile.balance || 0).toLocaleString()} 🪙`;
+
+        const cardDate = document.getElementById('profile-card-date');
+        if (cardDate) {
+            const dateStr = profile.createdAt ? new Date(profile.createdAt).toLocaleDateString('vi-VN') : 'Mới tham gia';
+            cardDate.textContent = `Tham gia: ${dateStr}`;
+        }
+
+        // Inputs
+        const nickInput = document.getElementById('profile-input-nickname');
+        if (nickInput) nickInput.value = nickname;
+
+        selectProfileAvatar(selectedProfileAvatar);
+    } catch (e) {
+        showToast('Không thể tải thông tin hồ sơ: ' + e.message, 'error');
+    }
+}
+
+function selectProfileAvatar(avatar) {
+    selectedProfileAvatar = avatar || '👤';
+    const preview = document.getElementById('profile-selected-avatar-preview');
+    if (preview) preview.textContent = selectedProfileAvatar;
+
+    const cardAvatar = document.getElementById('profile-card-avatar');
+    if (cardAvatar) cardAvatar.textContent = selectedProfileAvatar;
+
+    document.querySelectorAll('.avatar-pick-btn').forEach(btn => {
+        if (btn.dataset.avatar === selectedProfileAvatar) {
+            btn.classList.add('selected');
+        } else {
+            btn.classList.remove('selected');
+        }
+    });
+}
+
+async function saveUserProfile() {
+    const nickInput = document.getElementById('profile-input-nickname');
+    const nickname = nickInput ? nickInput.value.trim() : '';
+
+    if (!nickname) {
+        showProfileAlert('info', 'Tên hiển thị không được để trống!', 'error');
+        if (nickInput) nickInput.focus();
+        return;
+    }
+
+    try {
+        const res = await apiCall('/api/auth/profile/update', 'POST', {
+            avatar: selectedProfileAvatar,
+            nickname: nickname
+        });
+
+        // Update local state
+        if (state.user) {
+            state.user.avatar = selectedProfileAvatar;
+            state.user.nickname = nickname;
+            localStorage.setItem('cardgame_user', JSON.stringify(state.user));
+        }
+
+        updateAuthUI();
+        showToast(res.message || 'Đã lưu thông tin hồ sơ thành công!', 'success');
+        closeModal('profile-modal');
+    } catch (e) {
+        showProfileAlert('info', e.message, 'error');
+    }
+}
+
+async function saveUserPassword() {
+    const curInput = document.getElementById('profile-pwd-current');
+    const newInput = document.getElementById('profile-pwd-new');
+    const confInput = document.getElementById('profile-pwd-confirm');
+
+    const currentPassword = curInput ? curInput.value.trim() : '';
+    const newPassword = newInput ? newInput.value.trim() : '';
+    const confirmPassword = confInput ? confInput.value.trim() : '';
+
+    if (!currentPassword) {
+        showProfileAlert('pwd', 'Vui lòng nhập mật khẩu hiện tại!', 'error');
+        curInput?.focus();
+        return;
+    }
+
+    if (!newPassword || newPassword.length < 6) {
+        showProfileAlert('pwd', 'Mật khẩu mới phải có tối thiểu 6 ký tự!', 'error');
+        newInput?.focus();
+        return;
+    }
+
+    if (newPassword !== confirmPassword) {
+        showProfileAlert('pwd', 'Xác nhận mật khẩu mới không khớp!', 'error');
+        confInput?.focus();
+        return;
+    }
+
+    try {
+        const res = await apiCall('/api/auth/profile/change-password', 'POST', {
+            currentPassword,
+            newPassword
+        });
+
+        showToast(res.message || 'Đã đổi mật khẩu thành công!', 'success');
+        if (curInput) curInput.value = '';
+        if (newInput) newInput.value = '';
+        if (confInput) confInput.value = '';
+        closeModal('profile-modal');
+    } catch (e) {
+        showProfileAlert('pwd', e.message, 'error');
+    }
+}
+
+function showProfileAlert(tab, message, type = 'error') {
+    const alertBox = document.getElementById(tab === 'pwd' ? 'profile-pwd-alert' : 'profile-info-alert');
+    if (!alertBox) return;
+    alertBox.style.display = 'flex';
+    alertBox.className = `auth-alert alert-${type}`;
+    alertBox.innerHTML = `<span>${type === 'error' ? '⚠️' : 'ℹ️'}</span> <span>${escapeHtml(message)}</span>`;
+}
+
 // Event Bindings
 document.addEventListener('DOMContentLoaded', () => {
     updateAuthUI();
+
+    // Sync latest user profile on startup if logged in
+    if (state.token) {
+        apiCall('/api/auth/profile', 'GET').then(profile => {
+            if (profile && state.user) {
+                state.user.avatar = profile.avatar || state.user.avatar || '👤';
+                state.user.nickname = profile.nickname || state.user.nickname || state.user.username;
+                state.user.role = profile.role || state.user.role;
+                localStorage.setItem('cardgame_user', JSON.stringify(state.user));
+                updateAuthUI();
+            }
+        }).catch(() => {});
+    }
 
     // Brand logo home click
     document.getElementById('brand-home-btn')?.addEventListener('click', () => switchScreen('screen-lobby'));
@@ -1860,6 +2103,38 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('form-auth-submit')?.addEventListener('click', executeAuth);
 
     document.getElementById('btn-logout')?.addEventListener('click', handleLogout);
+
+    // Profile Modal triggers & Actions
+    document.getElementById('btn-open-profile')?.addEventListener('click', openProfileModal);
+    document.getElementById('header-avatar')?.addEventListener('click', () => {
+        if (state.token) openProfileModal();
+    });
+    document.getElementById('header-username')?.addEventListener('click', () => {
+        if (state.token) openProfileModal();
+    });
+    document.getElementById('btn-close-profile')?.addEventListener('click', () => closeModal('profile-modal'));
+
+    // Profile Tabs
+    document.querySelectorAll('.profile-tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.profile-tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.profile-tab-pane').forEach(p => p.style.display = 'none');
+            btn.classList.add('active');
+            const targetPane = document.getElementById(btn.dataset.ptab);
+            if (targetPane) targetPane.style.display = 'block';
+        });
+    });
+
+    // Avatar pickers
+    document.querySelectorAll('.avatar-pick-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            selectProfileAvatar(btn.dataset.avatar);
+        });
+    });
+
+    // Save profile and password
+    document.getElementById('btn-save-profile')?.addEventListener('click', saveUserProfile);
+    document.getElementById('btn-save-password')?.addEventListener('click', saveUserPassword);
     
     // QR Deposit modal triggers & history
     document.getElementById('btn-top-up')?.addEventListener('click', openDepositModal);

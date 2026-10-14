@@ -19,6 +19,12 @@ namespace CardGame.Server.Data.Entities
 
         public string Role { get; set; } = "user";
 
+        public string Avatar { get; set; } = "👤";
+
+        public string? Nickname { get; set; }
+
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
         public bool IsBanned { get; set; } = false;
 
         public DateTime? BannedUntil { get; set; }
