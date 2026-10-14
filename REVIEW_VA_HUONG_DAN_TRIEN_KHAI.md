@@ -114,6 +114,55 @@ vercel --prod
 
 ---
 
-### 📌 LƯU Ý QUAN TRỌNG VỀ BACKEND:
-- Giao diện người dùng (HTML/CSS/JS) chạy trên Vercel có sẵn đầy đủ âm thanh Web Audio và thuật toán offline.
-- Khi cần kết nối với máy chủ API .NET để lưu dữ liệu PostgreSQL lâu dài, bạn chỉ cần triển khai Backend .NET lên các nền tảng miễn phí hỗ trợ Docker/.NET như **Render.com**, **Railway.app** hoặc **Fly.io**, sau đó cập nhật địa chỉ API trong file `app.js`.
+## PHẦN 3: HƯỚNG DẪN TRIỂN KHAI TOÀN BỘ LÊN RENDER.COM (CHẠY 24/7 KHÔNG CẦN BẬT MÁY)
+
+Khi triển khai lên Render, toàn bộ ứng dụng (.NET 9 + PostgreSQL + Giao diện Web) sẽ được máy chủ đám mây vận hành online 24/7. Bạn có thể tắt máy tính, tắt PowerShell và tắt Docker ở máy cá nhân mà ứng dụng vẫn chạy trơn tru.
+
+---
+
+### Bước 1: Đẩy mã nguồn lên GitHub (Đã có sẵn Dockerfile)
+Mở PowerShell tại thư mục dự án và chạy:
+```powershell
+git add .
+git commit -m "Add Dockerfile and cloud database auto-seed for Render"
+git push origin main
+```
+
+---
+
+### Bước 2: Tạo Cơ Sở Dữ Liệu PostgreSQL Miễn Phí Trên Render
+1. Truy cập [render.com](https://render.com) và đăng nhập (bằng tài khoản GitHub).
+2. Bấm nút **New +** ở góc trên ➔ Chọn **PostgreSQL**.
+3. Điền các thông tin:
+   - **Name:** `cardgame-db`
+   - **Database:** `card_game_db`
+   - **User:** `game_admin`
+   - **Region:** Singapore (Southeast Asia - gần Việt Nam nhất, tốc độ nhanh nhất)
+   - **Instance Type:** Chọn **Free** (Miễn phí)
+4. Bấm **Create Database**.
+5. Chờ 30 giây để Render tạo database. Sau khi xong, bạn tìm mục **Connections** và copy dòng:
+   👉 **Internal Database URL** *(có dạng: `postgresql://game_admin:...@dpg-...:5432/card_game_db`)*.
+
+---
+
+### Bước 3: Tạo Web Service Chạy Ứng Dụng Game Bài
+1. Tại Dashboard Render, bấm **New +** ➔ Chọn **Web Service**.
+2. Chọn **Build and deploy from a Git repository** ➔ Chọn repository **CardGame** của bạn.
+3. Render sẽ **tự động nhận diện `Dockerfile`** ở thư mục gốc của dự án!
+4. Cấu hình các thông số:
+   - **Name:** `cardgame-server` (hoặc tên tùy bạn thích)
+   - **Region:** Singapore
+   - **Instance Type:** Chọn **Free**
+5. Cuộn xuống mục **Environment Variables** (Biến môi trường) ➔ Bấm **Add Environment Variable**:
+   - **Key:** `DATABASE_URL`
+   - **Value:** Dán đường link **Internal Database URL** đã copy ở Bước 2.
+6. Bấm nút **Create Web Service** (hoặc **Deploy Web Service**).
+
+---
+
+### Bước 4: Tận Hưởng Thành Quả (Online 24/7)
+- Render sẽ tự động kéo Docker image .NET 9, biên dịch mã nguồn và chạy máy chủ.
+- **Hệ thống đã được lập trình tự động:** Ngay khi máy chủ khởi động lần đầu, nó sẽ tự kết nối Database Render, tự tạo cấu trúc bảng (`Users`, `Wallets`, `DepositRequests`, `AuditLogs`) và tự nạp tài khoản Super Admin `admin` / `Admin123!` với 9.990.000 chip.
+- Khi Render báo trạng thái **`Live`**, bạn bấm vào đường link URL do Render cấp (ví dụ: `https://cardgame-server.onrender.com`).
+- 🎉 **Tất cả các tính năng (Sảnh chơi, Game bài, Nạp tiền QR, Duyệt nạp tiền Admin, Vòng quay may mắn) đều chạy mượt mà trên link này!**
+- Bạn có thể gửi đường link này cho bạn bè chơi cùng trên cả điện thoại và máy tính bất kỳ lúc nào mà không cần bật máy tính ở nhà.
