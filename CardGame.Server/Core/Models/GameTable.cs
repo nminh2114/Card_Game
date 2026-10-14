@@ -66,6 +66,8 @@ namespace CardGame.Server.Core.Models
         public int Pot { get; set; } = 0;
         public int DeckRemaining { get; set; } = 52;
         public string PokerPhase { get; set; } = "preflop"; // preflop, flop, turn, river, showdown
+        public int CurrentBetLevel { get; set; } = 0; // Current highest bet in this betting round
+        public int ActedThisRound { get; set; } = 0; // How many players have acted in this betting round
         public List<CardDto> CommunityCards { get; set; } = new();
         public List<CardDto> DiscardPile { get; set; } = new();
         public List<TablePlayer> Players { get; set; } = new();

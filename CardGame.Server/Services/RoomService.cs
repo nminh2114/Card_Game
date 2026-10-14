@@ -188,6 +188,8 @@ namespace CardGame.Server.Services
                 table.CommunityCards.Clear();
                 table.State = TableState.Dealing;
                 table.PokerPhase = "preflop";
+                table.Pot = 0;
+                table.ActedThisRound = 0;
 
                 // Shuffle fresh 52-card deck
                 table.Deck = new Deck();
@@ -225,23 +227,36 @@ namespace CardGame.Server.Services
                     }
                 }
 
-                // In Tá Lả, first player (Host/Dealer) gets the 10th card to discard first
+                // In Tá Lả, the Dealer gets the 10th card to discard first
                 if (table.GameType == "tala")
                 {
-                    var firstPlayer = table.Players[0];
+                    var dealerPlayer = table.Players[table.DealerSeat % table.Players.Count];
                     var extraCard = table.Deck.DealCard();
-                    firstPlayer.Hand.Add(CardDto.FromCard(extraCard));
-                    table.CurrentTurnUserId = firstPlayer.UserId;
-                    table.StatusMessage = $"Ván mới bắt đầu! Lượt đầu tiên: {firstPlayer.Nickname} (có 10 lá).";
+                    dealerPlayer.Hand.Add(CardDto.FromCard(extraCard));
+                    table.CurrentTurnUserId = dealerPlayer.UserId;
+                    table.StatusMessage = $"Ván mới bắt đầu! Lượt đầu tiên: {dealerPlayer.Nickname} (có 10 lá, phải đánh 1 lá rác).";
                 }
                 else if (table.GameType == "poker")
                 {
                     // Small blind and big blind
+                    int sbIdx = (table.DealerSeat + 1) % table.Players.Count;
+                    int bbIdx = (table.DealerSeat + 2) % table.Players.Count;
                     int sb = table.Stake / 2;
                     int bb = table.Stake;
+
+                    var sbPlayer = table.Players[sbIdx];
+                    var bbPlayer = table.Players[bbIdx];
+                    sbPlayer.Chips -= sb;
+                    sbPlayer.CurrentBet = sb;
+                    bbPlayer.Chips -= bb;
+                    bbPlayer.CurrentBet = bb;
                     table.Pot = sb + bb;
-                    table.CurrentTurnUserId = table.Players[(table.DealerSeat + 1) % table.Players.Count].UserId;
-                    table.StatusMessage = $"Dealer chia bài tẩy cho mỗi người. Lượt cược Pre-flop!";
+                    table.CurrentBetLevel = bb;
+
+                    // First to act is the player after big blind
+                    int firstActIdx = (bbIdx + 1) % table.Players.Count;
+                    table.CurrentTurnUserId = table.Players[firstActIdx].UserId;
+                    table.StatusMessage = $"Dealer chia bài tẩy. SB: {sbPlayer.Nickname} ({sb:N0}), BB: {bbPlayer.Nickname} ({bb:N0}). Lượt cược Pre-flop!";
                 }
                 else
                 {
@@ -255,6 +270,20 @@ namespace CardGame.Server.Services
 
                 return (true, "Đã chia bài thành công cho tất cả người chơi!");
             }
+        }
+
+        // Find the next active (non-folded) player in clockwise order
+        private int FindNextActivePlayer(GameTable table, int currentIdx)
+        {
+            int count = table.Players.Count;
+            int nextIdx = (currentIdx + 1) % count;
+            int attempts = 0;
+            while (table.Players[nextIdx].HasFolded && attempts < count)
+            {
+                nextIdx = (nextIdx + 1) % count;
+                attempts++;
+            }
+            return nextIdx;
         }
 
         // Play card(s) from hand to table (supports single cards or pairs/combos with spread display)
@@ -307,9 +336,9 @@ namespace CardGame.Server.Services
                     return (true, $"Bạn đã đánh hết bài và giành chiến thắng!");
                 }
 
-                // Pass turn to next player in clockwise order
+                // Pass turn to next active (non-folded) player in clockwise order
                 int myIdx = table.Players.FindIndex(p => p.UserId == userId);
-                int nextIdx = (myIdx + 1) % table.Players.Count;
+                int nextIdx = FindNextActivePlayer(table, myIdx);
                 table.CurrentTurnUserId = table.Players[nextIdx].UserId;
                 table.StatusMessage = $"{player.Nickname} vừa đánh {playedDtos.Count} lá. Đến lượt: {table.Players[nextIdx].Nickname}.";
 
@@ -388,7 +417,7 @@ namespace CardGame.Server.Services
                     return (false, "Không tìm thấy người chơi trong bàn.");
 
                 int myIdx = table.Players.FindIndex(p => p.UserId == userId);
-                int nextIdx = (myIdx + 1) % table.Players.Count;
+                int nextIdx = FindNextActivePlayer(table, myIdx);
                 table.CurrentTurnUserId = table.Players[nextIdx].UserId;
                 table.StatusMessage = $"{player.Nickname} đã bỏ lượt. Đến lượt: {table.Players[nextIdx].Nickname}.";
 
@@ -404,24 +433,70 @@ namespace CardGame.Server.Services
 
             lock (table.TableLock)
             {
+                if (table.CurrentTurnUserId != userId)
+                    return (false, "Chưa đến lượt của bạn!");
+
                 var player = table.Players.FirstOrDefault(p => p.UserId == userId);
                 if (player == null) return (false, "Không tìm thấy người chơi.");
+                if (player.HasFolded) return (false, "Bạn đã bỏ bài (Fold) ván này.");
 
-                if (action.ToLower() == "fold")
+                var act = action.ToLower();
+
+                if (act == "fold")
                 {
                     player.HasFolded = true;
                     table.StatusMessage = $"{player.Nickname} đã Bỏ Bài (Fold).";
                 }
-                else if (action.ToLower() == "call" || action.ToLower() == "check")
+                else if (act == "check")
                 {
-                    table.StatusMessage = $"{player.Nickname} đã {action.ToUpper()}.";
+                    // Check only allowed when no current bet or player already matched
+                    if (table.CurrentBetLevel > player.CurrentBet)
+                    {
+                        return (false, $"Không thể Check! Cần Call {table.CurrentBetLevel - player.CurrentBet:N0} chip hoặc Raise.");
+                    }
+                    table.StatusMessage = $"{player.Nickname} đã Check.";
                 }
-                else if (action.ToLower() == "raise")
+                else if (act == "call")
+                {
+                    int callAmount = table.CurrentBetLevel - player.CurrentBet;
+                    if (callAmount <= 0)
+                    {
+                        table.StatusMessage = $"{player.Nickname} đã Check.";
+                    }
+                    else
+                    {
+                        if (player.Chips < callAmount)
+                        {
+                            // All-in
+                            callAmount = player.Chips;
+                        }
+                        player.Chips -= callAmount;
+                        player.CurrentBet += callAmount;
+                        table.Pot += callAmount;
+                        table.StatusMessage = $"{player.Nickname} đã Call {callAmount:N0} chip.";
+                    }
+                }
+                else if (act == "raise")
                 {
                     int raiseAmt = amount > 0 ? amount : table.Stake;
-                    table.Pot += raiseAmt;
-                    table.StatusMessage = $"{player.Nickname} Tố thêm {raiseAmt:N0} chip!";
+                    int totalBet = table.CurrentBetLevel + raiseAmt;
+                    int chipsToPay = totalBet - player.CurrentBet;
+
+                    if (player.Chips < chipsToPay)
+                    {
+                        return (false, $"Không đủ chip để Raise! Cần {chipsToPay:N0} chip, bạn chỉ có {player.Chips:N0} chip.");
+                    }
+
+                    player.Chips -= chipsToPay;
+                    player.CurrentBet = totalBet;
+                    table.Pot += chipsToPay;
+                    table.CurrentBetLevel = totalBet;
+                    // Reset acted count since raise reopens betting
+                    table.ActedThisRound = 0;
+                    table.StatusMessage = $"{player.Nickname} Tố thêm {raiseAmt:N0} chip! (Tổng cược: {totalBet:N0})";
                 }
+
+                table.ActedThisRound++;
 
                 // Check remaining active players in poker
                 var activePlayers = table.Players.Where(p => !p.HasFolded).ToList();
@@ -429,46 +504,66 @@ namespace CardGame.Server.Services
                 {
                     var winner = activePlayers.FirstOrDefault() ?? player;
                     table.State = TableState.Settlement;
+                    winner.Chips += table.Pot;
                     table.StatusMessage = $"🎉 {winner.Nickname} là người duy nhất chưa bỏ bài và thắng toàn bộ {table.Pot:N0} chip!";
+                    table.Pot = 0;
                     return (true, $"{winner.Nickname} thắng ván bài!");
                 }
 
-                // Advance poker phase if needed
-                if (table.PokerPhase == "preflop" && table.CommunityCards.Count == 0 && table.Deck != null)
+                // Check if betting round is complete (all active players have acted and matched current bet)
+                bool roundComplete = table.ActedThisRound >= activePlayers.Count
+                    && activePlayers.All(p => p.CurrentBet == table.CurrentBetLevel || p.Chips == 0);
+
+                if (roundComplete && table.Deck != null)
                 {
-                    // Deal Flop (3 cards)
-                    table.PokerPhase = "flop";
-                    for (int i = 0; i < 3; i++)
+                    // Reset for next betting round
+                    foreach (var p in table.Players)
                     {
+                        p.CurrentBet = 0;
+                    }
+                    table.CurrentBetLevel = 0;
+                    table.ActedThisRound = 0;
+
+                    if (table.PokerPhase == "preflop")
+                    {
+                        // Deal Flop (3 cards)
+                        table.PokerPhase = "flop";
+                        for (int i = 0; i < 3; i++)
+                        {
+                            var c = table.Deck.DealCard();
+                            table.CommunityCards.Add(CardDto.FromCard(c));
+                        }
+                        table.StatusMessage = "Dealer mở 3 lá bài chung (Flop)!";
+                    }
+                    else if (table.PokerPhase == "flop")
+                    {
+                        // Deal Turn (1 card)
+                        table.PokerPhase = "turn";
                         var c = table.Deck.DealCard();
                         table.CommunityCards.Add(CardDto.FromCard(c));
+                        table.StatusMessage = "Dealer mở lá bài thứ 4 (Turn)!";
                     }
-                    table.StatusMessage = "Dealer mở 3 lá bài chung (Flop)!";
-                }
-                else if (table.PokerPhase == "flop" && table.CommunityCards.Count == 3 && table.Deck != null)
-                {
-                    // Deal Turn (1 card)
-                    table.PokerPhase = "turn";
-                    var c = table.Deck.DealCard();
-                    table.CommunityCards.Add(CardDto.FromCard(c));
-                    table.StatusMessage = "Dealer mở lá bài thứ 4 (Turn)!";
-                }
-                else if (table.PokerPhase == "turn" && table.CommunityCards.Count == 4 && table.Deck != null)
-                {
-                    // Deal River (1 card)
-                    table.PokerPhase = "river";
-                    var c = table.Deck.DealCard();
-                    table.CommunityCards.Add(CardDto.FromCard(c));
-                    table.StatusMessage = "Dealer mở lá bài cuối cùng (River)!";
+                    else if (table.PokerPhase == "turn")
+                    {
+                        // Deal River (1 card)
+                        table.PokerPhase = "river";
+                        var c = table.Deck.DealCard();
+                        table.CommunityCards.Add(CardDto.FromCard(c));
+                        table.StatusMessage = "Dealer mở lá bài cuối cùng (River)!";
+                    }
+                    else if (table.PokerPhase == "river")
+                    {
+                        // Showdown - TODO: evaluate best hands and award pot
+                        table.PokerPhase = "showdown";
+                        table.State = TableState.Settlement;
+                        table.StatusMessage = $"🃏 SHOWDOWN! Tổng tiền thưởng: {table.Pot:N0} chip. Hãy so bài để xác định người thắng!";
+                        return (true, "Showdown! So bài để xác định người thắng.");
+                    }
                 }
 
-                // Next turn
+                // Next turn: find next active (non-folded) player
                 int curIdx = table.Players.FindIndex(p => p.UserId == userId);
-                int nextIdx = (curIdx + 1) % table.Players.Count;
-                while (table.Players[nextIdx].HasFolded && nextIdx != curIdx)
-                {
-                    nextIdx = (nextIdx + 1) % table.Players.Count;
-                }
+                int nextIdx = FindNextActivePlayer(table, curIdx);
                 table.CurrentTurnUserId = table.Players[nextIdx].UserId;
 
                 return (true, "Thao tác Poker thành công.");

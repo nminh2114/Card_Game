@@ -386,14 +386,27 @@ namespace CardGame.Server.Controllers
                 _roomService.KickPlayerFromTable(table.TableId, user.Id);
             }
 
-            // 2. Direct SQL delete for 100% cascade reliability without EF tracking conflict
-            await _context.Database.ExecuteSqlRawAsync(@"
-                DELETE FROM ""DepositRequests"" WHERE ""UserId"" = {0} OR ""Username"" = {1};
-                DELETE FROM ""Wallets"" WHERE ""UserId"" = {0};
-                DELETE FROM ""Users"" WHERE ""Id"" = {0};",
-                user.Id, deletedUsername);
+            // 2. Detach ALL tracked entities to prevent EF Core conflict with raw SQL
+            foreach (var entry in _context.ChangeTracker.Entries().ToList())
+            {
+                entry.State = EntityState.Detached;
+            }
 
-            // 3. Audit log
+            // 3. Direct SQL delete for 100% cascade reliability
+            try
+            {
+                await _context.Database.ExecuteSqlRawAsync(@"
+                    DELETE FROM ""DepositRequests"" WHERE ""UserId"" = {0} OR ""Username"" = {1};
+                    DELETE FROM ""Wallets"" WHERE ""UserId"" = {0};
+                    DELETE FROM ""Users"" WHERE ""Id"" = {0};",
+                    req.UserId, deletedUsername);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = $"Lỗi khi xóa tài khoản: {ex.Message}" });
+            }
+
+            // 4. Audit log (safe - entity already detached)
             try
             {
                 _context.AuditLogs.Add(new AuditLog

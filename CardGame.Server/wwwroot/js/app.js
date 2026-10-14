@@ -965,17 +965,20 @@ async function executeConfirmBan() {
     const reason = document.getElementById('ban-reason-input').value.trim() || 'Vi phạm quy định hệ thống';
 
     try {
+        closeModal('ban-user-modal');
+        showLoading('Đang Khóa Tài Khoản', `Đang khóa tài khoản ${currentBanTarget.username}...`);
         const res = await apiCall('/api/admin/ban', 'POST', {
             userId: currentBanTarget.userId,
             days: days,
             reason: reason
         });
-        closeModal('ban-user-modal');
         showToast(res.message);
         await loadAdminUsers();
         await loadAdminDashboard();
     } catch (e) {
         showToast(e.message, 'error');
+    } finally {
+        hideLoading();
     }
 }
 
@@ -991,12 +994,15 @@ window.adminUnbanUser = async function(userId, username) {
     if (!confirmed) return;
 
     try {
+        showLoading('Đang Mở Khóa Tài Khoản', `Đang mở khóa ${username}...`);
         const res = await apiCall('/api/admin/unban', 'POST', { userId });
-        showToast(res.message);
+        showToast(res.message || `Đã mở khóa tài khoản ${username} thành công!`);
         await loadAdminUsers();
         await loadAdminDashboard();
     } catch (e) {
         showToast(e.message, 'error');
+    } finally {
+        hideLoading();
     }
 };
 
@@ -1219,6 +1225,8 @@ async function enterGame(gameType, stakePerRound, minBuyIn) {
 
     try {
         const res = await apiCall('/api/room/create', 'POST', {
+            gameType: gameType,
+            stake: stakePerRound,
             maxPlayers: 4,
             minBuyIn: minBuyIn
         });

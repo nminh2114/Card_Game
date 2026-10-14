@@ -41,7 +41,14 @@ if (rawConn.StartsWith("postgres://") || rawConn.StartsWith("postgresql://"))
 }
 
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(connectionString));
+    options.UseNpgsql(connectionString, npgsqlOptions =>
+    {
+        npgsqlOptions.EnableRetryOnFailure(
+            maxRetryCount: 5,
+            maxRetryDelay: TimeSpan.FromSeconds(10),
+            errorCodesToAdd: null);
+        npgsqlOptions.CommandTimeout(30);
+    }));
 
 // 2. Redis Cache
 var redisConfig = builder.Configuration["Redis:ConnectionString"] 
@@ -190,22 +197,8 @@ using (var scope = app.Services.CreateScope())
             }
         }
 
-        // Clean all old tables and non-admin player accounts as requested
-        try
-        {
-            db.Database.ExecuteSqlRaw(@"
-                DELETE FROM ""MatchHistory"";
-                DELETE FROM ""DepositRequests"" WHERE ""UserId"" NOT IN (SELECT ""Id"" FROM ""Users"" WHERE LOWER(""Username"") = 'admin');
-                DELETE FROM ""Wallets"" WHERE ""UserId"" NOT IN (SELECT ""Id"" FROM ""Users"" WHERE LOWER(""Username"") = 'admin');
-                DELETE FROM ""Users"" WHERE LOWER(""Username"") != 'admin';
-                UPDATE ""Wallets"" SET ""Balance"" = 10000000 WHERE ""UserId"" IN (SELECT ""Id"" FROM ""Users"" WHERE LOWER(""Username"") = 'admin');
-            ");
-            Console.WriteLine("[Database] Player database and match history cleaned successfully. Only Super Admin remains with 10M chips.");
-        }
-        catch (Exception cleanEx)
-        {
-            Console.WriteLine($"[Database Cleanup Warning] {cleanEx.Message}");
-        }
+        // Note: Auto-cleanup removed to preserve player accounts across server restarts.
+        // Use the Admin Panel "Clean All Players" button for manual cleanup when needed.
     }
     catch (Exception ex)
     {

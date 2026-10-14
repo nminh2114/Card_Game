@@ -141,3 +141,4 @@ C:\Users\NhatMinh\code\CardGame\CardGame.Tests\obj\Debug\net9.0\CardGame.Tests.p
 C:\Users\NhatMinh\code\CardGame\CardGame.Tests\obj\Debug\net9.0\CardGame.Tests.genruntimeconfig.cache
 C:\Users\NhatMinh\code\CardGame\CardGame.Tests\obj\Debug\net9.0\ref\CardGame.Tests.dll
 C:\Users\NhatMinh\code\CardGame\CardGame.Tests\bin\Debug\net9.0\CardGame.Server.staticwebassets.runtime.json
+C:\Users\NhatMinh\code\CardGame\CardGame.Tests\obj\Debug\net9.0\CardGame.Tests.sourcelink.json
