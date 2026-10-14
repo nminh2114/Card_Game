@@ -134,6 +134,47 @@ using (var scope = app.Services.CreateScope())
         db.Database.EnsureCreated();
         Console.WriteLine("[Database] Database schema ensured successfully.");
 
+        // Auto-migration: Ensure all required columns and tables exist (for cloud databases on Render/Neon/Supabase)
+        try
+        {
+            db.Database.ExecuteSqlRaw(@"
+                ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""Role"" text NOT NULL DEFAULT 'user';
+                ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""Avatar"" text NOT NULL DEFAULT '👤';
+                ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""Nickname"" text;
+                ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW();
+                ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""IsBanned"" boolean NOT NULL DEFAULT false;
+                ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""BannedUntil"" timestamp with time zone;
+                ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""BanReason"" text;
+
+                CREATE TABLE IF NOT EXISTS ""DepositRequests"" (
+                    ""Id"" text PRIMARY KEY,
+                    ""UserId"" text NOT NULL,
+                    ""Username"" text NOT NULL,
+                    ""Amount"" integer NOT NULL,
+                    ""TransferCode"" text NOT NULL,
+                    ""Status"" text NOT NULL DEFAULT 'Pending',
+                    ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW(),
+                    ""ProcessedAt"" timestamp with time zone,
+                    ""ProcessedBy"" text,
+                    ""RejectReason"" text
+                );
+
+                CREATE TABLE IF NOT EXISTS ""AuditLogs"" (
+                    ""Id"" text PRIMARY KEY,
+                    ""AdminUsername"" text NOT NULL DEFAULT 'admin',
+                    ""ActionType"" text NOT NULL,
+                    ""TargetUser"" text NOT NULL,
+                    ""Details"" text NOT NULL DEFAULT '',
+                    ""CreatedAt"" timestamp with time zone NOT NULL DEFAULT NOW()
+                );
+            ");
+            Console.WriteLine("[Database] Auto-migration: Users columns & tables verified successfully.");
+        }
+        catch (Exception migEx)
+        {
+            Console.WriteLine($"[Database Auto-Migration Warning] {migEx.Message}");
+        }
+
         var authService = scope.ServiceProvider.GetRequiredService<AuthService>();
         var walletService = scope.ServiceProvider.GetRequiredService<WalletService>();
         var admin = db.Users.Include(u => u.Wallet).FirstOrDefault(u => u.Username == "admin");
