@@ -386,35 +386,53 @@ namespace CardGame.Server.Controllers
                 _roomService.KickPlayerFromTable(table.TableId, user.Id);
             }
 
-            // 2. Remove related deposits
-            var deposits = await _context.DepositRequests.Where(d => d.UserId == user.Id || d.Username == deletedUsername).ToListAsync();
-            _context.DepositRequests.RemoveRange(deposits);
+            // 2. Direct SQL delete for 100% cascade reliability without EF tracking conflict
+            await _context.Database.ExecuteSqlRawAsync(@"
+                DELETE FROM ""DepositRequests"" WHERE ""UserId"" = {0} OR ""Username"" = {1};
+                DELETE FROM ""Wallets"" WHERE ""UserId"" = {0};
+                DELETE FROM ""Users"" WHERE ""Id"" = {0};",
+                user.Id, deletedUsername);
 
-            // 3. Remove wallet
-            if (user.Wallet != null)
+            // 3. Audit log
+            try
             {
-                _context.Wallets.Remove(user.Wallet);
+                _context.AuditLogs.Add(new AuditLog
+                {
+                    AdminUsername = "admin",
+                    ActionType = "DELETE_USER",
+                    TargetUser = deletedUsername,
+                    Details = $"Xóa vĩnh viễn tài khoản {deletedUsername} khỏi cơ sở dữ liệu hệ thống.",
+                    CreatedAt = DateTime.UtcNow
+                });
+                await _context.SaveChangesAsync();
             }
-
-            // 4. Remove user entity permanently
-            _context.Users.Remove(user);
-
-            // 5. Audit log
-            _context.AuditLogs.Add(new AuditLog
-            {
-                AdminUsername = "admin",
-                ActionType = "DELETE_USER",
-                TargetUser = deletedUsername,
-                Details = $"Xóa vĩnh viễn tài khoản {deletedUsername} khỏi cơ sở dữ liệu hệ thống.",
-                CreatedAt = DateTime.UtcNow
-            });
-
-            await _context.SaveChangesAsync();
+            catch { }
 
             return Ok(new
             {
                 Success = true,
                 Message = $"Đã xóa vĩnh viễn tài khoản {deletedUsername} khỏi cơ sở dữ liệu hệ thống."
+            });
+        }
+
+        // Clean all non-admin players and reset all active tables
+        [HttpPost("clean-all-players")]
+        public async Task<IActionResult> CleanAllPlayers()
+        {
+            _roomService.ClearAllTables();
+
+            await _context.Database.ExecuteSqlRawAsync(@"
+                DELETE FROM ""MatchHistory"";
+                DELETE FROM ""DepositRequests"" WHERE ""UserId"" NOT IN (SELECT ""Id"" FROM ""Users"" WHERE LOWER(""Username"") = 'admin');
+                DELETE FROM ""Wallets"" WHERE ""UserId"" NOT IN (SELECT ""Id"" FROM ""Users"" WHERE LOWER(""Username"") = 'admin');
+                DELETE FROM ""Users"" WHERE LOWER(""Username"") != 'admin';
+                UPDATE ""Wallets"" SET ""Balance"" = 10000000 WHERE ""UserId"" IN (SELECT ""Id"" FROM ""Users"" WHERE LOWER(""Username"") = 'admin');
+            ");
+
+            return Ok(new
+            {
+                Success = true,
+                Message = "Đã dọn dẹp sạch toàn bộ bàn chơi và tài khoản người chơi (giữ lại Super Admin admin với 10.000.000 chip)."
             });
         }
 

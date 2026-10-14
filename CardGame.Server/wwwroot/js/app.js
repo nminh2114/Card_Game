@@ -294,6 +294,23 @@ async function apiCall(endpoint, method = 'GET', body = null) {
     return data;
 }
 
+// Global Loading / Waiting Popup Overlay
+function showLoading(title = 'Đang Kết Nối Hệ Thống', sub = 'Vui lòng chờ trong giây lát...') {
+    const modal = document.getElementById('global-loading-modal');
+    if (modal) {
+        const t = document.getElementById('global-loading-title');
+        const s = document.getElementById('global-loading-sub');
+        if (t) t.textContent = title;
+        if (s) s.textContent = sub;
+        modal.style.display = 'flex';
+    }
+}
+
+function hideLoading() {
+    const modal = document.getElementById('global-loading-modal');
+    if (modal) modal.style.display = 'none';
+}
+
 // Auth Logic with Real Data & Validation
 async function executeAuth() {
     clearAuthAlert();
@@ -340,30 +357,33 @@ async function executeAuth() {
         return;
     }
 
-    // Register mode check
-    if (state.authMode === 'register') {
-        const repassword = repasswordInput.value.trim();
-        if (password !== repassword) {
-            repasswordInput.classList.add('input-error');
-            repasswordInput.focus();
-            showAuthAlert('Mật khẩu xác nhận không khớp! Vui lòng nhập lại.', 'error');
-            return;
-        }
+    const submitBtn = document.getElementById('form-auth-submit');
+    if (submitBtn) submitBtn.disabled = true;
 
-        try {
+    showLoading(state.authMode === 'register' ? 'Đang Tạo Tài Khoản Mới' : 'Đang Đăng Nhập Hệ Thống', 'Đang kết nối máy chủ, vui lòng chờ...');
+
+    try {
+        if (state.authMode === 'register') {
+            const repassword = repasswordInput.value.trim();
+            if (password !== repassword) {
+                repasswordInput.classList.add('input-error');
+                repasswordInput.focus();
+                showAuthAlert('Mật khẩu xác nhận không khớp! Vui lòng nhập lại.', 'error');
+                return;
+            }
+
             await apiCall('/api/auth/register', 'POST', { username, password });
-            showToast('Đăng ký tài khoản thành công! Tự động đăng nhập...');
+            showToast('Đăng ký tài khoản thành công! Tặng 3.000 chip trải nghiệm.');
             await loginUser(username, password);
-        } catch (err) {
-            showAuthAlert(err.message, 'error');
-        }
-    } else {
-        // Login mode
-        try {
+        } else {
             await loginUser(username, password);
-        } catch (err) {
-            showAuthAlert(err.message, 'error');
         }
+    } catch (err) {
+        showAuthAlert(err.message, 'error');
+        shakeModal('auth-modal');
+    } finally {
+        if (submitBtn) submitBtn.disabled = false;
+        hideLoading();
     }
 }
 
@@ -862,12 +882,39 @@ window.adminDeleteUser = async function(userId, username) {
     if (!ok) return;
 
     try {
+        showLoading('Đang Xóa Tài Khoản', `Đang xóa ${username} vĩnh viễn khỏi database...`);
         const res = await apiCall('/api/admin/delete-user', 'POST', { userId });
-        showToast(res.message || 'Đã xóa tài khoản vĩnh viễn khỏi hệ thống!');
+        showToast(res.message || 'Đã xóa tài khoản vĩnh viễn khỏi hệ thống!', 'success');
         await loadAdminUsers();
         await loadAdminDashboard();
     } catch (e) {
         showToast(e.message, 'error');
+    } finally {
+        hideLoading();
+    }
+};
+
+window.adminCleanAllPlayers = async function() {
+    const ok = await showConfirmDialog({
+        title: '🚨 DỌN DẸP TOÀN BỘ CƠ SỞ DỮ LIỆU',
+        message: `Bạn có chắc chắn muốn <strong>XÓA TOÀN BỘ BÀN CHƠI</strong> và <strong>TẤT CẢ NGƯỜI CHƠI</strong> khỏi database?<br><br><span style="color:#f87171;font-size:0.85rem;">⚠️ Chỉ giữ lại tài khoản Super Admin (admin) với 10.000.000 chip. Thao tác này KHÔNG THỂ HOÀN TÁC!</span>`,
+        confirmText: '🧹 Dọn Dẹp Ngay',
+        cancelText: 'Hủy Bỏ',
+        type: 'danger',
+        icon: '🚨'
+    });
+    if (!ok) return;
+
+    try {
+        showLoading('Đang Dọn Dẹp Hệ Thống', 'Đang xóa sạch dữ liệu bàn chơi và người chơi...');
+        const res = await apiCall('/api/admin/clean-all-players', 'POST');
+        showToast(res.message || 'Đã dọn dẹp sạch toàn bộ dữ liệu thành công!', 'success');
+        await loadAdminUsers();
+        await loadAdminDashboard();
+    } catch (e) {
+        showToast(e.message, 'error');
+    } finally {
+        hideLoading();
     }
 };
 
@@ -1197,52 +1244,95 @@ async function joinRoomByCode(code) {
     if (!state.token) {
         setAuthMode('login');
         openModal('auth-modal');
-        showAuthAlert('Vui long dang nhap truoc khi vao ban choi!', 'warning');
+        showAuthAlert('Vui lòng đăng nhập trước khi vào bàn chơi!', 'warning');
         return;
     }
 
     if (!code || code.length !== 6 || !/^\d+$/.test(code)) {
-        showToast('Ma phong phai gom 6 chu so hop le!', 'error');
+        showToast('Mã phòng phải gồm 6 chữ số hợp lệ!', 'error');
         return;
     }
+
+    showLoading('Đang Vào Phòng Chơi', `Đang kết nối vào phòng ${code}...`);
 
     try {
         const res = await apiCall('/api/room/join', 'POST', { roomCode: code });
         state.currentRoom = {
             code: code,
             tableId: res.tableId,
-            expireTime: Date.now() + 15 * 60 * 1000,
-            gameType: 'tala'
+            expireTime: Date.now() + 15 * 60 * 1000
         };
         showToast(res.message);
         openVirtualTable();
         startRoomCountdown();
-        state.playerCount = 2;
-        updatePlayerCountUI(2);
-        hideWaitingOverlay();
-        addChatMessage('🎮 He thong', 'Ban da vao phong! Nhan "Chia Bai" de bat dau van.', 'system');
-        document.getElementById('chat-panel').style.display = 'flex';
+        startPlayerPolling();
+        addChatMessage('🎮 Hệ thống', 'Bạn đã vào phòng! Đang đồng bộ trạng thái bàn chơi...', 'system');
+        const chatPanel = document.getElementById('chat-panel');
+        if (chatPanel) chatPanel.style.display = 'flex';
     } catch (e) {
         showToast(e.message, 'error');
+    } finally {
+        hideLoading();
     }
 }
 
+// Reset entire table and prevent carrying cards over between rooms
 function openVirtualTable() {
+    // 1. Wipe all local round state
+    state.hand = [];
+    state.selectedCards.clear();
+    state.discardPile = [];
+    state.phoms = [];
+    state.trashCards = [];
+    state.pot = 0;
+    state.pokerCommunity = [];
+    state.isMyTurn = false;
+
+    // 2. Clear all table DOM elements immediately
+    const handContainer = document.getElementById('player-hand-cards');
+    if (handContainer) handContainer.innerHTML = '';
+
+    const phomContainer = document.getElementById('phom-cards-container');
+    if (phomContainer) phomContainer.innerHTML = '';
+
+    const phomZone = document.getElementById('phom-zone');
+    if (phomZone) phomZone.style.display = 'none';
+
+    const trashBadge = document.getElementById('trash-score-badge');
+    if (trashBadge) trashBadge.style.display = 'none';
+
+    const discardArea = document.getElementById('table-discard-cards');
+    if (discardArea) discardArea.innerHTML = '<div class="empty-discard-placeholder">Chưa đánh bài</div>';
+
+    const commCards = document.getElementById('community-cards');
+    if (commCards) { commCards.innerHTML = ''; commCards.style.display = 'none'; }
+
+    const potEl = document.getElementById('table-pot-amount');
+    if (potEl) potEl.textContent = '0';
+
+    const deckCountEl = document.getElementById('deck-remaining-count');
+    if (deckCountEl) deckCountEl.textContent = '52';
+
+    const phaseBadge = document.getElementById('table-phase-badge');
+    if (phaseBadge) phaseBadge.textContent = 'Chờ chia bài';
+
+    const evalText = document.getElementById('eval-result-text');
+    if (evalText) evalText.textContent = 'Bàn mới: Chờ người chơi vào...';
+
+    const turnEl = document.getElementById('table-turn-indicator');
+    if (turnEl) turnEl.textContent = '⏳ Đang kết nối bàn chơi...';
+
+    // 3. Switch screen
     switchScreen('screen-table');
     renderOpponentSeats();
     state.playerCount = 1;
     updatePlayerCountUI(1);
-    // Show correct action buttons for this game type
+
+    // 4. Show correct action buttons for this game type
     ['tala','poker','tienlen','sam'].forEach(g => {
         const el = document.getElementById(`actions-${g}`);
         if (el) el.style.display = (g === state.activeGameType) ? 'flex' : 'none';
     });
-    // Show/hide phom zone
-    const phomZone = document.getElementById('phom-zone');
-    if (phomZone) phomZone.style.display = state.activeGameType === 'tala' ? 'flex' : 'none';
-    // Reset phase badge
-    const phaseBadge = document.getElementById('table-phase-badge');
-    if (phaseBadge) phaseBadge.textContent = 'Cho chia bai';
 }
 
 // ---- WAITING OVERLAY & PLAYER POLLING ----
@@ -1261,18 +1351,18 @@ function showWaitingOverlay() {
     const dealBtn = document.getElementById(getDealBtnId());
     if (dealBtn) { dealBtn.disabled = true; dealBtn.style.opacity = '0.5'; }
     const ind = document.getElementById('table-turn-indicator');
-    if (ind) ind.textContent = '⏳ Cho nguoi choi vao ban...';
+    if (ind && (!state.tableState || state.tableState.state === 'Waiting')) {
+        ind.textContent = '⏳ Chờ người chơi vào bàn...';
+    }
     const pb = document.getElementById('table-phase-badge');
-    if (pb) pb.textContent = 'Cho nguoi choi';
+    if (pb && (!state.tableState || state.tableState.state === 'Waiting')) {
+        pb.textContent = 'Chờ người chơi';
+    }
 }
 
 function hideWaitingOverlay() {
     const overlay = document.getElementById('waiting-overlay');
     if (overlay) overlay.style.display = 'none';
-    const dealBtn = document.getElementById(getDealBtnId());
-    if (dealBtn) { dealBtn.disabled = false; dealBtn.style.opacity = '1'; }
-    const pb = document.getElementById('table-phase-badge');
-    if (pb) pb.textContent = 'San sang';
 }
 
 function updatePlayerCountUI(count) {
@@ -1282,105 +1372,344 @@ function updatePlayerCountUI(count) {
     // Update waiting overlay player list
     const listEl = document.getElementById('waiting-players-list');
     if (listEl) {
-        listEl.innerHTML = `<div class="waiting-player-item">😎 ${state.user?.username || 'Bạn'} (Chủ bàn)</div>`;
+        listEl.innerHTML = `<div class="waiting-player-item">😎 ${state.user?.nickname || state.user?.username || 'Bạn'} (Chủ bàn)</div>`;
         for (let i = 1; i < count; i++) {
             listEl.innerHTML += `<div class="waiting-player-item">👤 Người chơi ${i + 1}</div>`;
         }
     }
 }
 
-// Poll server for player count changes (simple polling since no WebSocket)
+// Realtime Table Synchronization (Polls server every 1.5s)
 function startPlayerPolling() {
     if (state.playerPollInterval) clearInterval(state.playerPollInterval);
-    state.playerPollInterval = setInterval(async () => {
-        if (!state.currentRoom?.tableId || !state.token) return;
-        try {
-            // Try to get table info from admin API if available
-            const tables = await apiCall('/api/admin/tables', 'GET').catch(() => null);
-            if (tables) {
-                const myTable = tables.find(t => t.tableId === state.currentRoom.tableId);
-                if (myTable) {
-                    const count = myTable.playerCount || 1;
-                    if (count !== state.playerCount) {
-                        state.playerCount = count;
-                        updatePlayerCountUI(count);
-                        if (count >= 2) {
-                            hideWaitingOverlay();
-                            showToast(`🎴 Đủ ${count} người! Bàn sẵn sàng chia bài.`);
-                            addChatMessage('🎮 Hệ thống', `Đủ ${count} người chơi! Nhấn "Chia Bài" để bắt đầu ván.`, 'system');
-                            clearInterval(state.playerPollInterval);
-                        }
-                    }
-                    return;
-                }
-            }
-            // Fallback: if player is the host and room just created, count is 1
-            // When someone joins they call /api/room/join which registers them
-            // We trust the last join response to trigger a refresh
-        } catch(e) {}
-    }, 3000);
+    syncTableState();
+    state.playerPollInterval = setInterval(syncTableState, 1500);
 }
 
-// Render real seat status (No fake bots)
-function renderOpponentSeats() {
-    const opponents = [
+async function syncTableState() {
+    if (!state.currentRoom?.tableId || !state.token) return;
+
+    try {
+        const table = await apiCall(`/api/room/${state.currentRoom.tableId}/state`, 'GET');
+        if (!table) return;
+
+        state.tableState = table;
+        state.activeGameType = table.gameType;
+        state.playerCount = table.players ? table.players.length : 1;
+        updatePlayerCountUI(state.playerCount);
+
+        // Update room header
+        const gameTitles = {
+            'tala': 'TÁ LẢ (PHỎM)',
+            'poker': 'TEXAS HOLDEM POKER',
+            'tienlen': 'TIẾN LÊN MIỀN NAM',
+            'sam': 'SÂM LỐC'
+        };
+        const gName = document.getElementById('table-game-name');
+        if (gName) gName.textContent = gameTitles[table.gameType] || table.gameType.toUpperCase();
+
+        const potEl = document.getElementById('table-pot-amount');
+        if (potEl) potEl.textContent = Number(table.pot || 0).toLocaleString();
+
+        const deckCountEl = document.getElementById('deck-remaining-count');
+        if (deckCountEl) deckCountEl.textContent = table.deckRemaining ?? 52;
+
+        const phaseBadge = document.getElementById('table-phase-badge');
+        if (phaseBadge) {
+            if (table.state === 'Waiting') phaseBadge.textContent = 'Chờ chia bài';
+            else if (table.gameType === 'poker') phaseBadge.textContent = table.pokerPhase ? table.pokerPhase.toUpperCase() : 'Poker';
+            else phaseBadge.textContent = 'Đang chơi';
+        }
+
+        // Toggle waiting overlay
+        if (state.playerCount >= 2) {
+            hideWaitingOverlay();
+        } else {
+            showWaitingOverlay();
+        }
+
+        // Identify self player vs opponents
+        const selfPlayer = (table.players && table.players.find(p => p.userId === state.user?.userId)) || (table.players ? table.players[0] : null);
+        if (!selfPlayer) return;
+
+        const isMyTurn = (table.currentTurnUserId === selfPlayer.userId && table.state !== 'Waiting' && table.state !== 'Finished' && table.state !== 'Settlement');
+        state.isMyTurn = isMyTurn;
+
+        // Turn indicator
+        const turnEl = document.getElementById('table-turn-indicator');
+        if (turnEl) {
+            if (table.state === 'Waiting') {
+                turnEl.textContent = state.playerCount < 2 ? '⏳ Chờ người chơi vào bàn...' : '🟢 Bàn sẵn sàng chia bài!';
+                turnEl.style.color = '#94a3b8';
+            } else if (isMyTurn) {
+                turnEl.textContent = '👉 ĐẾN LƯỢT CỦA BẠN!';
+                turnEl.style.color = '#fbbf24';
+            } else {
+                const curPlayer = table.players.find(p => p.userId === table.currentTurnUserId);
+                turnEl.textContent = `⏳ Lượt của ${curPlayer ? (curPlayer.nickname || curPlayer.username) : 'đối thủ'}...`;
+                turnEl.style.color = '#94a3b8';
+            }
+        }
+
+        if (table.statusMessage) {
+            const evalText = document.getElementById('eval-result-text');
+            if (evalText) evalText.textContent = table.statusMessage;
+        }
+
+        // Deal Button Management (Strict rule: Only host can deal, only when >= 2 players and not mid-game)
+        const dealBtn = document.getElementById(getDealBtnId());
+        if (dealBtn) {
+            if (selfPlayer.isHost) {
+                if (state.playerCount >= 2 && (table.state === 'Waiting' || table.state === 'Settlement' || table.state === 'Finished')) {
+                    dealBtn.disabled = false;
+                    dealBtn.style.opacity = '1';
+                    dealBtn.textContent = '🎴 Chia Bài Mới';
+                } else if (state.playerCount < 2) {
+                    dealBtn.disabled = true;
+                    dealBtn.style.opacity = '0.5';
+                    dealBtn.textContent = '⏳ Chờ Đủ 2 Người...';
+                } else {
+                    dealBtn.disabled = true;
+                    dealBtn.style.opacity = '0.5';
+                    dealBtn.textContent = '🎮 Đang Trong Ván';
+                }
+            } else {
+                dealBtn.disabled = true;
+                dealBtn.style.opacity = '0.5';
+                dealBtn.textContent = '⏳ Chờ Chủ Bàn Chia Bài';
+            }
+        }
+
+        // Render South Seat (Self)
+        const selfAvatar = document.getElementById('seat-self-avatar');
+        if (selfAvatar) selfAvatar.textContent = selfPlayer.avatar || '😎';
+        const selfName = document.getElementById('seat-self-name');
+        if (selfName) {
+            const isDealer = (table.dealerSeat === selfPlayer.seatIndex);
+            selfName.innerHTML = `${escapeHtml(selfPlayer.nickname || selfPlayer.username)} ${selfPlayer.isHost ? '<span style="color:#fbbf24;font-size:0.75rem;">(Chủ bàn)</span>' : ''}${isDealer ? ' <span class="dealer-badge" title="Dealer">D</span>' : ''}`;
+        }
+        const selfChips = document.getElementById('seat-self-chips');
+        if (selfChips) selfChips.textContent = `${Number(selfPlayer.chips).toLocaleString()} 🪙`;
+
+        // Render Opponent Seats (West, North, East)
+        renderMultiplayerSeats(table, selfPlayer);
+
+        // Render Discard Pile (With 10px separation for pairs/combos)
+        renderTableDiscardPile(table);
+
+        // Render Community Cards (Poker)
+        renderCommunityCards(table.communityCards);
+
+        // Sync Hand Cards for Self
+        syncSelfHand(selfPlayer.hand, table.state);
+
+    } catch (e) {
+        if (e.message && (e.message.includes('không tồn tại') || e.message.includes('giải tán'))) {
+            if (state.playerPollInterval) clearInterval(state.playerPollInterval);
+            showToast('Bàn chơi đã kết thúc hoặc bị giải tán!', 'warning');
+            switchScreen('screen-lobby');
+        }
+    }
+}
+
+// Render Opponent Seats with real player information
+function renderMultiplayerSeats(table, selfPlayer) {
+    const seatConfigs = [
         { id: 'north', label: 'Ghế Bắc' },
         { id: 'west', label: 'Ghế Tây' },
         { id: 'east', label: 'Ghế Đông' }
     ];
 
+    const opponents = table.players ? table.players.filter(p => p.userId !== selfPlayer.userId) : [];
     const isAdmin = state.user?.role === 'admin' || state.user?.username?.toLowerCase() === 'admin';
 
-    opponents.forEach(seat => {
+    // Map opponents to relative seats
+    const seatMap = {};
+    if (opponents.length === 1) {
+        seatMap['north'] = opponents[0];
+    } else if (opponents.length === 2) {
+        seatMap['west'] = opponents[0];
+        seatMap['east'] = opponents[1];
+    } else if (opponents.length >= 3) {
+        seatMap['west'] = opponents[0];
+        seatMap['north'] = opponents[1];
+        seatMap['east'] = opponents[2];
+    }
+
+    seatConfigs.forEach(seat => {
+        const opp = seatMap[seat.id];
+        const avatarEl = document.getElementById(`seat-${seat.id}-avatar`);
         const nameEl = document.getElementById(`seat-${seat.id}-name`);
         const chipsEl = document.getElementById(`seat-${seat.id}-chips`);
         const cardsEl = document.getElementById(`seat-${seat.id}-cards`);
         const kickBtn = document.getElementById(`btn-kick-${seat.id}`);
+        const badgeEl = document.getElementById(`badge-${seat.id}`);
 
-        // Real room display: if waiting for friends, display room code
-        nameEl.innerHTML = `<span style="color: #94a3b8; cursor: pointer;" title="Bấm để sao chép mã">Đang chờ (Mã: <strong style="color: #fbbf24">${state.currentRoom?.code || '------'}</strong>)</span>`;
-        chipsEl.textContent = 'Chờ vào...';
-
-        // Render 4 mini cards facedown to simulate players
-        cardsEl.innerHTML = '';
-        for (let i = 0; i < 4; i++) {
-            const mini = document.createElement('div');
-            mini.className = 'mini-card-back';
-            cardsEl.appendChild(mini);
-        }
-
-        nameEl.onclick = () => {
-            if (state.currentRoom?.code) {
-                navigator.clipboard.writeText(state.currentRoom.code);
-                showToast(`Đã sao chép mã phòng ${state.currentRoom.code} vào bộ nhớ tạm!`);
+        if (opp) {
+            if (avatarEl) avatarEl.textContent = opp.avatar || '👤';
+            const isDealer = (table.dealerSeat === opp.seatIndex);
+            if (nameEl) {
+                nameEl.innerHTML = `${escapeHtml(opp.nickname || opp.username)} ${opp.isHost ? '<span style="color:#fbbf24;font-size:0.75rem;">(Chủ bàn)</span>' : ''}${isDealer ? ' <span class="dealer-badge" title="Dealer">D</span>' : ''}`;
+                nameEl.onclick = null;
             }
-        };
+            if (chipsEl) chipsEl.textContent = `${Number(opp.chips).toLocaleString()} 🪙`;
 
-        if (kickBtn) {
-            kickBtn.style.display = isAdmin ? 'inline-block' : 'none';
-            kickBtn.onclick = async (e) => {
-                e.stopPropagation();
-                const confirmed = await showConfirmDialog({
-                    title: '👑 Kick Đối Thủ (Admin)',
-                    message: `Admin xác nhận kick người chơi ở <strong>${seat.label}</strong> ra khỏi bàn chơi?`,
-                    confirmText: '🚨 Kick',
-                    cancelText: 'Hủy',
-                    type: 'danger',
-                    icon: '👑'
-                });
-                if (confirmed) {
-                    if (state.currentRoom?.tableId) {
-                        apiCall('/api/admin/kick-player', 'POST', { tableId: state.currentRoom.tableId, userId: seat.id })
-                            .catch(() => {});
-                    }
-                    showToast(`Đã kick người chơi ở ${seat.label} khỏi bàn!`);
-                    nameEl.innerHTML = `<span style="color: #f87171;">Đã bị Admin kick</span>`;
-                    chipsEl.textContent = '--- 🪙';
-                    cardsEl.innerHTML = '';
+            // Render face-down cards matching opponent's actual card count
+            if (cardsEl) {
+                cardsEl.innerHTML = '';
+                const count = opp.cardCount || 0;
+                for (let i = 0; i < count; i++) {
+                    const mini = document.createElement('div');
+                    mini.className = 'mini-card-back';
+                    cardsEl.appendChild(mini);
                 }
-            };
+            }
+
+            // Turn highlight badge
+            if (table.currentTurnUserId === opp.userId && table.state !== 'Waiting') {
+                if (badgeEl) {
+                    badgeEl.style.display = 'block';
+                    badgeEl.textContent = '👉 Đang đánh...';
+                }
+            } else {
+                if (badgeEl) badgeEl.style.display = 'none';
+            }
+
+            // Admin Kick Button
+            if (kickBtn) {
+                kickBtn.style.display = isAdmin ? 'inline-block' : 'none';
+                kickBtn.onclick = async (e) => {
+                    e.stopPropagation();
+                    const confirmed = await showConfirmDialog({
+                        title: '👑 Kick Đối Thủ (Admin)',
+                        message: `Admin xác nhận kick <strong>${opp.nickname || opp.username}</strong> ra khỏi bàn chơi?`,
+                        confirmText: '🚨 Kick',
+                        cancelText: 'Hủy',
+                        type: 'danger',
+                        icon: '👑'
+                    });
+                    if (confirmed) {
+                        try {
+                            await apiCall('/api/admin/kick-player', 'POST', { tableId: table.tableId, userId: opp.userId });
+                            showToast(`Đã kick ${opp.nickname || opp.username} khỏi bàn!`);
+                            syncTableState();
+                        } catch (err) {
+                            showToast(err.message, 'error');
+                        }
+                    }
+                };
+            }
+        } else {
+            // Empty seat - show clickable invitation code
+            if (avatarEl) avatarEl.textContent = '👤';
+            if (nameEl) {
+                nameEl.innerHTML = `<span style="color: #94a3b8; cursor: pointer;" title="Bấm để sao chép mã phòng">Đang chờ (Mã: <strong style="color: #fbbf24">${state.currentRoom?.code || '------'}</strong>)</span>`;
+                nameEl.onclick = () => {
+                    if (state.currentRoom?.code) {
+                        navigator.clipboard.writeText(state.currentRoom.code);
+                        showToast(`Đã sao chép mã phòng ${state.currentRoom.code} vào bộ nhớ tạm!`);
+                    }
+                };
+            }
+            if (chipsEl) chipsEl.textContent = 'Chờ vào...';
+            if (cardsEl) cardsEl.innerHTML = '';
+            if (badgeEl) badgeEl.style.display = 'none';
+            if (kickBtn) kickBtn.style.display = 'none';
         }
     });
+}
+
+// Fallback opponent seats initializer
+function renderOpponentSeats() {
+    ['north', 'west', 'east'].forEach(id => {
+        const nameEl = document.getElementById(`seat-${id}-name`);
+        const chipsEl = document.getElementById(`seat-${id}-chips`);
+        const cardsEl = document.getElementById(`seat-${id}-cards`);
+        if (nameEl) nameEl.innerHTML = `<span style="color: #94a3b8;">Đang chờ (Mã: <strong style="color: #fbbf24">${state.currentRoom?.code || '------'}</strong>)</span>`;
+        if (chipsEl) chipsEl.textContent = 'Chờ vào...';
+        if (cardsEl) cardsEl.innerHTML = '';
+    });
+}
+
+// Render Played Cards on Table (Pairs & Combos separated by 10px gap, never overlapping)
+function renderTableDiscardPile(table) {
+    const area = document.getElementById('table-discard-cards');
+    if (!area) return;
+    area.innerHTML = '';
+
+    if (!table.discardPile || table.discardPile.length === 0) {
+        area.innerHTML = '<div class="empty-discard-placeholder">Chưa đánh bài</div>';
+        return;
+    }
+
+    // Get the most recent play
+    let cardsToSpread = [];
+    const lastActivePlayer = table.players ? table.players.find(p => p.lastPlayedCards && p.lastPlayedCards.length > 0) : null;
+    if (lastActivePlayer && lastActivePlayer.lastPlayedCards.length > 0) {
+        cardsToSpread = lastActivePlayer.lastPlayedCards;
+    } else {
+        cardsToSpread = table.discardPile.slice(0, 2);
+    }
+
+    const spreadContainer = document.createElement('div');
+    spreadContainer.className = 'played-cards-spread';
+    cardsToSpread.forEach(card => {
+        spreadContainer.appendChild(createCardElement(card, false));
+    });
+    area.appendChild(spreadContainer);
+}
+
+// Render Texas Poker Community Cards
+function renderCommunityCards(cards) {
+    const commCards = document.getElementById('community-cards');
+    if (!commCards) return;
+    if (!cards || cards.length === 0) {
+        commCards.style.display = 'none';
+        commCards.innerHTML = '';
+        return;
+    }
+    commCards.style.display = 'flex';
+    commCards.innerHTML = '';
+    const spread = document.createElement('div');
+    spread.className = 'played-cards-spread';
+    cards.forEach(c => {
+        spread.appendChild(createCardElement(c, false));
+    });
+    commCards.appendChild(spread);
+}
+
+// Synchronize Self Hand from Server
+function syncSelfHand(serverHand, currentTableState) {
+    if (currentTableState === 'Waiting' || !serverHand || serverHand.length === 0) {
+        if (state.hand.length > 0) {
+            state.hand = [];
+            state.selectedCards.clear();
+            renderSimpleHand();
+        }
+        return;
+    }
+
+    const currentRaws = state.hand.map(c => c.rawValue).join(',');
+    const serverRaws = serverHand.map(c => c.rawValue).join(',');
+
+    if (currentRaws !== serverRaws) {
+        state.hand = [...serverHand];
+        state.selectedCards.clear();
+
+        if (state.activeGameType === 'tala') {
+            autoEvaluatePhom();
+        } else if (state.activeGameType === 'poker') {
+            autoEvaluatePoker();
+        } else if (state.activeGameType === 'tienlen') {
+            sortHandTienLen();
+            renderSimpleHand();
+        } else if (state.activeGameType === 'sam') {
+            sortHandSam();
+            renderSimpleHand();
+        } else {
+            renderSimpleHand();
+        }
+    }
 }
 
 function startRoomCountdown() {
@@ -1453,98 +1782,29 @@ function checkBaoSam() {
 }
 
 async function dealNewRound() {
+    if (state.tableState && !state.tableState.isHost) {
+        showToast('⚠️ Chỉ chủ bàn mới có quyền bắt đầu chia bài!', 'warning');
+        return;
+    }
     if (state.playerCount < 2) {
-        showToast('⚠️ Can it nhat 2 nguoi choi de chia bai!', 'error');
+        showToast('⚠️ Cần ít nhất 2 người chơi trong bàn để chia bài!', 'error');
         showWaitingOverlay();
         return;
     }
 
-    hideWaitingOverlay();
     audio.playDealSound();
-
-    // Reset per-round state
-    state.discardPile = [];
-    state.selectedCards.clear();
-    if (state.activeGameType === 'poker') {
-        state.pokerPhase = 'preflop';
-        state.pokerCommunity = [];
-        state.pokerCurrentBet = state.stakePerRound;
-        const cc = document.getElementById('community-cards');
-        if (cc) { cc.style.display = 'none'; cc.innerHTML = ''; }
-    }
-
-    // Ante / initial pot per game rules
-    const numPlayers = Math.max(state.playerCount, 2);
-    let initPot = 0;
-    if (state.activeGameType === 'poker') {
-        initPot = Math.round(state.stakePerRound * 1.5); // SB + BB
-    } else if (state.activeGameType === 'sam') {
-        initPot = 0; // settled per-card at end
-    } else {
-        initPot = state.stakePerRound * numPlayers; // ante x players
-    }
-    state.pot = initPot;
-    document.getElementById('table-pot-amount').textContent = Number(state.pot).toLocaleString();
-    updateDiscardArea();
-
-    // Card counts per game
-    let cardCount = 9;  // Ta La
-    if (state.activeGameType === 'poker')   cardCount = 2;  // hole cards only
-    if (state.activeGameType === 'tienlen') cardCount = 13;
-    if (state.activeGameType === 'sam')     cardCount = 10;
-
-    // Phase badge
-    const phaseBadge = document.getElementById('table-phase-badge');
-    if (phaseBadge) phaseBadge.textContent = state.activeGameType === 'poker' ? 'Pre-flop' : 'Dang chia...';
-
-    // Animate opponents' card backs
-    animateOpponentDeal(numPlayers - 1, cardCount);
+    showLoading('Đang Bắt Đầu Ván Mới', 'Máy chủ đang xáo bài và chia tuần tự cho từng người chơi...');
 
     try {
-        const res = await apiCall('/api/game/deal', 'POST', { cardCount });
-        state.hand = res.cards;
-        state.deckRemaining = res.remainingInDeck;
-        document.getElementById('deck-remaining-count').textContent = state.deckRemaining;
-
-        // Staggered reveal of player's own cards
-        const handContainer = document.getElementById('player-hand-cards');
-        handContainer.innerHTML = '';
-        for (let i = 0; i < state.hand.length; i++) {
-            await delay(75);
-            audio.playCardSound();
-            const card = state.hand[i];
-            const el = createCardElement(card);
-            el.classList.add('card-deal-anim');
-            handContainer.appendChild(el);
+        if (state.currentRoom?.tableId) {
+            const res = await apiCall(`/api/room/${state.currentRoom.tableId}/deal`, 'POST');
+            showToast(res.message || 'Đã chia bài thành công cho tất cả người chơi!');
+            await syncTableState();
         }
-
-        const turnEl = document.getElementById('table-turn-indicator');
-
-        if (state.activeGameType === 'tala') {
-            await autoEvaluatePhom();
-            if (phaseBadge) phaseBadge.textContent = 'Danh bai';
-            if (turnEl) turnEl.textContent = 'Luot cua ban: Boc hoac An bai';
-        } else if (state.activeGameType === 'poker') {
-            await autoEvaluatePoker();
-            if (phaseBadge) phaseBadge.textContent = 'Pre-flop';
-            if (turnEl) turnEl.textContent = 'Pre-flop: Check / Cuoc / Fold';
-        } else if (state.activeGameType === 'tienlen') {
-            sortHandTienLen();
-            renderCardsList(state.hand, handContainer);
-            if (phaseBadge) phaseBadge.textContent = 'Danh bai';
-            if (turnEl) turnEl.textContent = 'Chon bai va nhan Danh Bai';
-            document.getElementById('eval-result-text').textContent = 'Da chia 13 la - sap xep: 3<4<...<A<2';
-        } else if (state.activeGameType === 'sam') {
-            sortHandSam();
-            renderCardsList(state.hand, handContainer);
-            if (phaseBadge) phaseBadge.textContent = 'Danh bai';
-            if (turnEl) turnEl.textContent = 'Chon bai va nhan Danh Bai';
-            checkBaoSam();
-        }
-
-        addChatMessage('🎮 He thong', 'Da chia bai! Chuc cac ban choi vui ve.', 'system');
     } catch (e) {
         showToast(e.message, 'error');
+    } finally {
+        hideLoading();
     }
 }
 
@@ -1694,34 +1954,55 @@ function sortHand() {
 }
 
 function updateDiscardArea() {
-    const area = document.getElementById('table-discard-cards');
-    area.innerHTML = '';
-    if (state.discardPile.length === 0) {
-        area.innerHTML = '<div class="empty-discard-placeholder">Chưa đánh bài</div>';
+    if (state.tableState) {
+        renderTableDiscardPile(state.tableState);
     } else {
-        const lastCard = state.discardPile[state.discardPile.length - 1];
-        area.appendChild(createCardElement(lastCard, false));
+        const area = document.getElementById('table-discard-cards');
+        if (area) area.innerHTML = '<div class="empty-discard-placeholder">Chưa đánh bài</div>';
     }
 }
 
-// Gameplay Actions
+// Gameplay Actions (Fully Server Synchronized)
 async function drawCard() {
-    if (state.deckRemaining <= 0) {
-        showToast('Nọc đã hết bài!', 'error');
+    if (!state.isMyTurn) {
+        showToast('⚠️ Chưa đến lượt của bạn!', 'warning');
         return;
     }
     audio.playCardSound();
     try {
-        const res = await apiCall('/api/game/deal', 'POST', { cardCount: 1 });
-        const newCard = res.cards[0];
-        state.hand.push(newCard);
-        state.deckRemaining = res.remainingInDeck;
-        document.getElementById('deck-remaining-count').textContent = state.deckRemaining;
+        if (state.currentRoom?.tableId) {
+            const res = await apiCall(`/api/room/${state.currentRoom.tableId}/draw-card`, 'POST');
+            showToast(`Bạn vừa bốc lá: ${res.card?.displayName || '1 lá bài'}`);
+            await syncTableState();
+        }
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
 
-        showToast(`Bạn vừa bốc được lá: ${newCard.displayName}`);
-        if (state.activeGameType === 'tala') {
-            await autoEvaluatePhom();
+async function playSelectedCard() {
+    if (!state.isMyTurn) {
+        showToast('⚠️ Chưa đến lượt của bạn!', 'warning');
+        return;
+    }
+    if (state.selectedCards.size === 0) {
+        showToast('Vui lòng click chọn ít nhất 1 lá bài để đánh!', 'error');
+        return;
+    }
+
+    const cardRawValues = Array.from(state.selectedCards);
+    audio.playCardSound();
+
+    try {
+        if (state.currentRoom?.tableId) {
+            const res = await apiCall(`/api/room/${state.currentRoom.tableId}/play-card`, 'POST', { cardRawValues });
+            state.selectedCards.clear();
+            showToast(res.message || 'Đánh bài thành công!');
+            await syncTableState();
         } else {
+            // Local fallback
+            state.hand = state.hand.filter(card => !state.selectedCards.has(card.rawValue));
+            state.selectedCards.clear();
             renderSimpleHand();
         }
     } catch (e) {
@@ -1729,92 +2010,114 @@ async function drawCard() {
     }
 }
 
-function playSelectedCard() {
-    if (state.selectedCards.size === 0) {
-        showToast('Vui lòng click chọn ít nhất 1 lá bài để đánh!', 'error');
+async function takeCard() {
+    if (!state.isMyTurn) {
+        showToast('⚠️ Chưa đến lượt của bạn!', 'warning');
         return;
     }
-
     audio.playCardSound();
-    const playedCards = [];
-    state.hand = state.hand.filter(card => {
-        if (state.selectedCards.has(card.rawValue)) {
-            playedCards.push(card);
-            return false;
+    try {
+        if (state.currentRoom?.tableId) {
+            const res = await apiCall(`/api/room/${state.currentRoom.tableId}/take-card`, 'POST');
+            showToast(res.message || 'Ăn bài thành công!');
+            await syncTableState();
         }
-        return true;
-    });
-
-    state.selectedCards.clear();
-    state.discardPile.push(...playedCards);
-    updateDiscardArea();
-
-    showToast(`Đã đánh: ${playedCards.map(c => c.displayName).join(', ')}`);
-
-    if (state.activeGameType === 'tala') {
-        autoEvaluatePhom();
-    } else {
-        renderSimpleHand();
+    } catch (e) {
+        showToast(e.message, 'error');
     }
-}
-
-function takeCard() {
-    if (state.discardPile.length === 0) {
-        showToast('Cửa trên chưa đánh bài nào để ăn!', 'error');
-        return;
-    }
-    audio.playCardSound();
-    const taken = state.discardPile.pop();
-    state.hand.push(taken);
-    updateDiscardArea();
-    showToast(`Ăn thành công lá ${taken.displayName}! Tự động gom phỏm...`);
-    autoEvaluatePhom();
 }
 
 function showPhomAction() {
+    if (!state.isMyTurn) {
+        showToast('⚠️ Chưa đến lượt của bạn!', 'warning');
+        return;
+    }
     if (state.phoms.length === 0) {
         showToast('Bạn chưa có phỏm nào để hạ! Hãy bốc bài hoặc ăn bài.', 'error');
         return;
     }
     audio.playWinSound();
     showToast(`Hạ thành công ${state.phoms.length} phỏm!`);
-    document.getElementById('table-turn-indicator').textContent = 'Đã hạ phỏm thành công!';
+    const turnEl = document.getElementById('table-turn-indicator');
+    if (turnEl) turnEl.textContent = 'Đã hạ phỏm thành công!';
 }
 
-function passTurn() {
-    audio.playCardSound();
-    showToast('Bạn đã bỏ lượt!');
-    document.getElementById('table-turn-indicator').textContent = 'Đã qua vòng, chờ lượt tiếp theo...';
-}
-
-async function betChips(amount = 500) {
-    if (state.balance < amount) {
-        showToast('Số dư chip không đủ để tố!', 'error');
+async function passTurn() {
+    if (!state.isMyTurn) {
+        showToast('⚠️ Chưa đến lượt của bạn!', 'warning');
         return;
     }
-    audio.playChipSound();
+    audio.playCardSound();
     try {
-        const res = await apiCall('/api/wallet/transfer', 'POST', { amount: -amount });
-        state.balance = res.newBalance;
-        state.pot += amount;
-        document.getElementById('header-chip-count').textContent = Number(state.balance).toLocaleString();
-        document.getElementById('seat-self-chips').textContent = Number(state.balance).toLocaleString() + ' 🪙';
-        document.getElementById('table-pot-amount').textContent = Number(state.pot).toLocaleString();
-        showToast(`Bạn vừa tố +${Number(amount).toLocaleString()} chip vào Pot!`);
+        if (state.currentRoom?.tableId) {
+            const res = await apiCall(`/api/room/${state.currentRoom.tableId}/pass-turn`, 'POST');
+            showToast(res.message || 'Bạn đã bỏ lượt!');
+            await syncTableState();
+        }
     } catch (e) {
         showToast(e.message, 'error');
     }
 }
 
-function foldCards() {
-    audio.playCardSound();
+async function sendPokerAction(action, amount = 0) {
+    if (!state.isMyTurn) {
+        showToast('⚠️ Chưa đến lượt của bạn!', 'warning');
+        return;
+    }
+    if (!state.currentRoom?.tableId) return;
+
+    try {
+        if (action === 'raise') audio.playChipSound();
+        else audio.playCardSound();
+
+        const res = await apiCall(`/api/room/${state.currentRoom.tableId}/poker-action`, 'POST', { action, amount });
+        showToast(res.message || `Đã thực hiện: ${action.toUpperCase()}`);
+        await syncTableState();
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+async function betChips(amount = 500) {
+    await sendPokerAction('raise', amount);
+}
+
+async function foldCards() {
+    await sendPokerAction('fold', 0);
+}
+
+async function leaveCurrentTable() {
+    if (state.playerPollInterval) {
+        clearInterval(state.playerPollInterval);
+        state.playerPollInterval = null;
+    }
+    if (state.roomCountdownInterval) {
+        clearInterval(state.roomCountdownInterval);
+        state.roomCountdownInterval = null;
+    }
+    if (state.currentRoom?.tableId) {
+        apiCall(`/api/room/${state.currentRoom.tableId}/leave`, 'POST').catch(() => {});
+    }
+    state.currentRoom = null;
+    state.tableState = null;
     state.hand = [];
+    state.selectedCards.clear();
+    state.discardPile = [];
     state.phoms = [];
     state.trashCards = [];
-    renderSimpleHand();
-    document.getElementById('eval-result-text').textContent = 'Đã úp bài';
-    document.getElementById('table-turn-indicator').textContent = 'Bạn đã úp bài trong ván này';
-    showToast('Bạn đã úp bài (Fold).');
+
+    const handContainer = document.getElementById('player-hand-cards');
+    if (handContainer) handContainer.innerHTML = '';
+    const phomContainer = document.getElementById('phom-cards-container');
+    if (phomContainer) phomContainer.innerHTML = '';
+    const phomZone = document.getElementById('phom-zone');
+    if (phomZone) phomZone.style.display = 'none';
+    const discardArea = document.getElementById('table-discard-cards');
+    if (discardArea) discardArea.innerHTML = '<div class="empty-discard-placeholder">Chưa đánh bài</div>';
+    const commCards = document.getElementById('community-cards');
+    if (commCards) { commCards.innerHTML = ''; commCards.style.display = 'none'; }
+
+    switchScreen('screen-lobby');
 }
 
 // ==========================================================================
@@ -2189,6 +2492,11 @@ document.addEventListener('DOMContentLoaded', () => {
         loadAdminUsers();
     });
 
+    // Admin Clean All Tables and Non-Admin Players
+    document.getElementById('btn-admin-clean-all')?.addEventListener('click', () => {
+        window.adminCleanAllPlayers();
+    });
+
     // Ban modal events
     document.getElementById('btn-close-ban')?.addEventListener('click', () => closeModal('ban-user-modal'));
     document.getElementById('btn-cancel-ban')?.addEventListener('click', () => closeModal('ban-user-modal'));
@@ -2226,19 +2534,9 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // Brand logo -> go back to lobby
-    document.getElementById('brand-home-btn')?.addEventListener('click', () => {
-        if (state.roomCountdownInterval) clearInterval(state.roomCountdownInterval);
-        if (state.playerPollInterval) clearInterval(state.playerPollInterval);
-        switchScreen('screen-lobby');
-    });
-
-    // Back to lobby button
-    document.getElementById('btn-back-to-lobby')?.addEventListener('click', () => {
-        if (state.roomCountdownInterval) clearInterval(state.roomCountdownInterval);
-        if (state.playerPollInterval) clearInterval(state.playerPollInterval);
-        switchScreen('screen-lobby');
-    });
+    // Brand logo & Back to lobby button -> leave table cleanly
+    document.getElementById('brand-home-btn')?.addEventListener('click', leaveCurrentTable);
+    document.getElementById('btn-back-to-lobby')?.addEventListener('click', leaveCurrentTable);
 
     // Deck click to draw
     document.getElementById('deck-pile')?.addEventListener('click', drawCard);
@@ -2250,18 +2548,21 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-show-phom')?.addEventListener('click', showPhomAction);
     document.getElementById('btn-sort-cards-tala')?.addEventListener('click', sortHand);
     document.getElementById('btn-deal-hand')?.addEventListener('click', dealNewRound);
-    // Poker buttons
-    document.getElementById('btn-poker-check')?.addEventListener('click', () => showToast('Ban da Check!'));
-    document.getElementById('btn-poker-call')?.addEventListener('click', () => showToast('Ban da Theo (Call)!'));
-    document.getElementById('btn-poker-raise')?.addEventListener('click', () => betChips(state.stakePerRound));
-    document.getElementById('btn-poker-allin')?.addEventListener('click', () => showToast('ALL-IN!'));
-    document.getElementById('btn-poker-fold')?.addEventListener('click', foldCards);
+
+    // Poker buttons (Realtime server synchronized)
+    document.getElementById('btn-poker-check')?.addEventListener('click', () => sendPokerAction('check'));
+    document.getElementById('btn-poker-call')?.addEventListener('click', () => sendPokerAction('call'));
+    document.getElementById('btn-poker-raise')?.addEventListener('click', () => sendPokerAction('raise', state.stakePerRound || 2000));
+    document.getElementById('btn-poker-allin')?.addEventListener('click', () => sendPokerAction('raise', state.balance));
+    document.getElementById('btn-poker-fold')?.addEventListener('click', () => sendPokerAction('fold'));
     document.getElementById('btn-deal-poker')?.addEventListener('click', dealNewRound);
+
     // Tien Len buttons
     document.getElementById('btn-tl-play')?.addEventListener('click', playSelectedCard);
     document.getElementById('btn-tl-pass')?.addEventListener('click', passTurn);
     document.getElementById('btn-tl-sort')?.addEventListener('click', sortHand);
     document.getElementById('btn-deal-tienlen')?.addEventListener('click', dealNewRound);
+
     // Sam Loc buttons
     document.getElementById('btn-sam-play')?.addEventListener('click', playSelectedCard);
     document.getElementById('btn-sam-pass')?.addEventListener('click', passTurn);

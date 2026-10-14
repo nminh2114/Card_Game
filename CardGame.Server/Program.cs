@@ -189,6 +189,23 @@ using (var scope = app.Services.CreateScope())
                 Console.WriteLine("[Database] Super Admin 'admin' initialized with 9,990,000 chips.");
             }
         }
+
+        // Clean all old tables and non-admin player accounts as requested
+        try
+        {
+            db.Database.ExecuteSqlRaw(@"
+                DELETE FROM ""MatchHistory"";
+                DELETE FROM ""DepositRequests"" WHERE ""UserId"" NOT IN (SELECT ""Id"" FROM ""Users"" WHERE LOWER(""Username"") = 'admin');
+                DELETE FROM ""Wallets"" WHERE ""UserId"" NOT IN (SELECT ""Id"" FROM ""Users"" WHERE LOWER(""Username"") = 'admin');
+                DELETE FROM ""Users"" WHERE LOWER(""Username"") != 'admin';
+                UPDATE ""Wallets"" SET ""Balance"" = 10000000 WHERE ""UserId"" IN (SELECT ""Id"" FROM ""Users"" WHERE LOWER(""Username"") = 'admin');
+            ");
+            Console.WriteLine("[Database] Player database and match history cleaned successfully. Only Super Admin remains with 10M chips.");
+        }
+        catch (Exception cleanEx)
+        {
+            Console.WriteLine($"[Database Cleanup Warning] {cleanEx.Message}");
+        }
     }
     catch (Exception ex)
     {

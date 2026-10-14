@@ -2826,4 +2826,91 @@ body {
     transform: scale(1.1);
 }
 
+/* ==========================================================================
+   GLOBAL LOADING POPUP OVERLAY
+   ========================================================================== */
+.global-loading-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 15, 29, 0.82);
+    backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100000 !important;
+    animation: fadeIn 0.2s ease-out;
+}
+
+.global-loading-box {
+    background: #1e293b;
+    border: 1px solid rgba(251, 191, 36, 0.4);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8), 0 0 30px rgba(251, 191, 36, 0.2);
+    border-radius: 16px;
+    padding: 2rem 2.5rem;
+    text-align: center;
+    max-width: 360px;
+    width: 90%;
+    animation: dialogPop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.loading-chip-spinner {
+    font-size: 3rem;
+    display: inline-block;
+    animation: chipFlip 1.2s infinite ease-in-out;
+    margin-bottom: 0.75rem;
+}
+
+@keyframes chipFlip {
+    0% { transform: rotateY(0deg) scale(1); }
+    50% { transform: rotateY(180deg) scale(1.15); }
+    100% { transform: rotateY(360deg) scale(1); }
+}
+
+.global-loading-title {
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: #f8fafc;
+    margin-bottom: 0.35rem;
+}
+
+.global-loading-sub {
+    font-size: 0.85rem;
+    color: #94a3b8;
+}
+
+/* ==========================================================================
+   MULTIPLAYER SPREAD CARDS & DEALER BADGE
+   ========================================================================== */
+.played-cards-spread {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    flex-wrap: nowrap;
+    padding: 4px;
+}
+
+.played-cards-spread .playing-card {
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.7);
+    transition: transform 0.2s ease;
+}
+
+.dealer-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #eab308;
+    color: #0f172a;
+    font-weight: 900;
+    font-size: 0.72rem;
+    border: 1px solid #fef08a;
+    box-shadow: 0 0 8px rgba(234, 179, 8, 0.6);
+    margin-left: 6px;
+    vertical-align: middle;
+}
+
+
 

@@ -682,10 +682,11 @@
         <div class="admin-panel-title">👥 Quản Lý Người Chơi</div>
         <div class="admin-toolbar">
           <input type="text" id="admin-search-users" class="form-input" placeholder="🔍 Tìm kiếm tài khoản..." style="max-width:280px;padding:0.4rem 0.75rem;font-size:0.85rem;">
-          <div style="display:flex;gap:0.5rem;">
+          <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
             <button class="filter-pill-btn active" data-ufilter="all">Tất Cả</button>
             <button class="filter-pill-btn" data-ufilter="banned">Đang Khóa</button>
             <button class="filter-pill-btn" data-ufilter="active">Hoạt Động</button>
+            <button class="btn btn-danger" id="btn-admin-clean-all" style="font-size:0.8rem;padding:0.35rem 0.75rem;margin-left:auto;" title="Xóa toàn bộ bàn chơi và người chơi, giữ lại admin">🧹 Dọn Dẹp Bàn & Player</button>
           </div>
         </div>
         <div class="admin-table-container">
@@ -947,7 +948,7 @@
 </div>
 
 <!-- ===== CUSTOM CONFIRM / PROMPT DIALOG POPUP ===== -->
-<div id="custom-dialog-modal" class="modal-overlay" style="z-index: 1200;">
+<div id="custom-dialog-modal" class="modal-overlay" style="z-index: 99999 !important;">
   <div class="modal-dialog custom-dialog-box">
     <div class="custom-dialog-header">
       <span id="custom-dialog-icon" class="custom-dialog-icon">ℹ️</span>
@@ -964,6 +965,15 @@
       <button type="button" id="custom-dialog-cancel-btn" class="btn btn-secondary" style="padding: 0.45rem 1.1rem;">Hủy</button>
       <button type="button" id="custom-dialog-confirm-btn" class="btn btn-primary" style="padding: 0.45rem 1.3rem;">Xác Nhận</button>
     </div>
+  </div>
+</div>
+
+<!-- ===== GLOBAL LOADING / WAITING POPUP ===== -->
+<div id="global-loading-modal" class="global-loading-overlay" style="display:none;z-index:100000 !important;">
+  <div class="global-loading-box">
+    <div class="loading-chip-spinner">🪙</div>
+    <div id="global-loading-title" class="global-loading-title">Đang Kết Nối Hệ Thống</div>
+    <div id="global-loading-sub" class="global-loading-sub">Vui lòng chờ trong giây lát...</div>
   </div>
 </div>
 

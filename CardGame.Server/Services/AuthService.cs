@@ -33,7 +33,7 @@ namespace CardGame.Server.Services
             var user = new User
             {
                 Username = username,
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword(password),
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(password, workFactor: 10),
                 Wallet = new Wallet { Balance = 3000 } // Tặng 3.000 chip cho người mới đăng ký
             };
 
